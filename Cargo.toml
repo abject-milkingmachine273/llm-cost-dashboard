@@ -1,0 +1,42 @@
+[package]
+name = "llm-cost-dashboard"
+version = "0.1.0"
+edition = "2021"
+description = "Real-time terminal dashboard for LLM token spend — cost/request, projected monthly bills, per-model breakdown"
+keywords = ["llm", "cost", "dashboard", "tui", "ratatui"]
+categories = ["command-line-utilities", "visualization"]
+license = "MIT"
+repository = "https://github.com/Mattbusel/llm-cost-dashboard"
+
+[[bin]]
+name = "llm-dash"
+path = "src/main.rs"
+
+[lib]
+name = "llm_cost_dashboard"
+path = "src/lib.rs"
+
+[dependencies]
+# ratatui: terminal UI framework
+ratatui = "0.29"
+# crossterm: cross-platform terminal manipulation
+crossterm = "0.28"
+# tokio: async runtime
+tokio = { version = "1", features = ["full"] }
+# thiserror: zero-cost error derive
+thiserror = "2"
+# serde: serialization for log records
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# chrono: timestamps
+chrono = { version = "0.4", features = ["serde"] }
+# uuid: request IDs
+uuid = { version = "1", features = ["v4", "serde"] }
+# clap: CLI argument parsing
+clap = { version = "4", features = ["derive"] }
+# tracing: structured logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
