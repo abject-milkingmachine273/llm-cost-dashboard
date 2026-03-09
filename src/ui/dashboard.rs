@@ -2,10 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::Modifier,
     text::{Line, Span},
-    widgets::{
-        BarChart, Block, Borders, Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation,
-        ScrollbarState, Table,
-    },
+    widgets::{BarChart, Block, Borders, Cell, Paragraph, Row, Table},
     Frame,
 };
 

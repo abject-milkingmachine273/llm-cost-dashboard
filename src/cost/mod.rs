@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::DashboardError;
-use pricing::compute_cost;
 
 /// A single completed LLM request.
 #[derive(Debug, Clone, Serialize, Deserialize)]

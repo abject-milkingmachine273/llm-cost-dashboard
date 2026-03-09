@@ -1,6 +1,5 @@
 use ratatui::{
     layout::Rect,
-    style::Color,
     text::{Line, Span},
     widgets::{Block, Borders, Gauge, Paragraph, Sparkline},
     Frame,
