@@ -2,16 +2,16 @@
 
 /// `(model_id, input_usd_per_1m, output_usd_per_1m)`
 pub const PRICING: &[(&str, f64, f64)] = &[
-    ("claude-opus-4-6",    15.00, 75.00),
-    ("claude-sonnet-4-6",   3.00, 15.00),
-    ("claude-haiku-4-5",    0.25,  1.25),
-    ("gpt-4o",              5.00, 15.00),
-    ("gpt-4o-mini",         0.15,  0.60),
-    ("gpt-4-turbo",        10.00, 30.00),
-    ("o1-preview",         15.00, 60.00),
-    ("o3-mini",             1.10,  4.40),
-    ("gemini-1.5-pro",      3.50, 10.50),
-    ("gemini-1.5-flash",    0.075, 0.30),
+    ("claude-opus-4-6", 15.00, 75.00),
+    ("claude-sonnet-4-6", 3.00, 15.00),
+    ("claude-haiku-4-5", 0.25, 1.25),
+    ("gpt-4o", 5.00, 15.00),
+    ("gpt-4o-mini", 0.15, 0.60),
+    ("gpt-4-turbo", 10.00, 30.00),
+    ("o1-preview", 15.00, 60.00),
+    ("o3-mini", 1.10, 4.40),
+    ("gemini-1.5-pro", 3.50, 10.50),
+    ("gemini-1.5-flash", 0.075, 0.30),
 ];
 
 /// Fallback pricing for unknown models (mid-range estimate).

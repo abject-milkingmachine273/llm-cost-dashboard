@@ -9,8 +9,8 @@ use ratatui::{
     Frame,
 };
 
-use crate::cost::CostLedger;
 use crate::budget::BudgetEnvelope;
+use crate::cost::CostLedger;
 use crate::ui::{theme::Theme, widgets};
 
 /// Full dashboard rendering — called on every tick.
@@ -26,10 +26,10 @@ pub fn render(
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),  // title bar
-            Constraint::Min(10),    // main content
-            Constraint::Length(3),  // sparkline
-            Constraint::Length(1),  // help bar
+            Constraint::Length(1), // title bar
+            Constraint::Min(10),   // main content
+            Constraint::Length(3), // sparkline
+            Constraint::Length(1), // help bar
         ])
         .split(area);
 

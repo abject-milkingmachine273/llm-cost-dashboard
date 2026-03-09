@@ -61,25 +61,25 @@ impl App {
     pub fn load_demo_data(&mut self) {
         let demos: &[(&str, &str, u64, u64, u64)] = &[
             ("claude-sonnet-4-6", "anthropic", 847, 312, 45),
-            ("gpt-4o-mini",       "openai",    512, 128, 12),
-            ("claude-haiku-4-5",  "anthropic", 256, 64,  8),
+            ("gpt-4o-mini", "openai", 512, 128, 12),
+            ("claude-haiku-4-5", "anthropic", 256, 64, 8),
             ("claude-sonnet-4-6", "anthropic", 1024, 512, 120),
-            ("gpt-4o",            "openai",    2048, 1024, 340),
-            ("gpt-4o-mini",       "openai",    400, 200, 15),
+            ("gpt-4o", "openai", 2048, 1024, 340),
+            ("gpt-4o-mini", "openai", 400, 200, 15),
             ("claude-sonnet-4-6", "anthropic", 600, 300, 55),
-            ("o3-mini",           "openai",    800, 400, 200),
-            ("gpt-4o-mini",       "openai",    300, 150, 10),
-            ("claude-haiku-4-5",  "anthropic", 128, 32,  5),
+            ("o3-mini", "openai", 800, 400, 200),
+            ("gpt-4o-mini", "openai", 300, 150, 10),
+            ("claude-haiku-4-5", "anthropic", 128, 32, 5),
             ("claude-sonnet-4-6", "anthropic", 512, 256, 40),
-            ("gpt-4o",            "openai",    1024, 512, 180),
-            ("gemini-1.5-flash",  "google",    700, 350, 30),
+            ("gpt-4o", "openai", 1024, 512, 180),
+            ("gemini-1.5-flash", "google", 700, 350, 30),
             ("claude-sonnet-4-6", "anthropic", 900, 450, 95),
-            ("gpt-4o-mini",       "openai",    600, 300, 22),
-            ("claude-haiku-4-5",  "anthropic", 200, 100, 7),
-            ("o3-mini",           "openai",    1500, 750, 280),
+            ("gpt-4o-mini", "openai", 600, 300, 22),
+            ("claude-haiku-4-5", "anthropic", 200, 100, 7),
+            ("o3-mini", "openai", 1500, 750, 280),
             ("claude-sonnet-4-6", "anthropic", 750, 375, 65),
-            ("gpt-4o",            "openai",    512, 256, 110),
-            ("gemini-1.5-pro",    "google",    1000, 500, 150),
+            ("gpt-4o", "openai", 512, 256, 110),
+            ("gemini-1.5-pro", "google", 1000, 500, 150),
         ];
         for (model, provider, inp, out, lat) in demos {
             self.record(CostRecord::new(*model, *provider, *inp, *out, *lat));
@@ -104,8 +104,7 @@ impl App {
 
 /// Run the TUI event loop.
 pub fn run(mut app: App) -> Result<(), DashboardError> {
-    crossterm::terminal::enable_raw_mode()
-        .map_err(|e| DashboardError::Terminal(e.to_string()))?;
+    crossterm::terminal::enable_raw_mode().map_err(|e| DashboardError::Terminal(e.to_string()))?;
     let mut stdout = std::io::stdout();
     crossterm::execute!(stdout, crossterm::terminal::EnterAlternateScreen)
         .map_err(|e| DashboardError::Terminal(e.to_string()))?;
@@ -116,8 +115,7 @@ pub fn run(mut app: App) -> Result<(), DashboardError> {
 
     let result = event_loop(&mut terminal, &mut app);
 
-    crossterm::terminal::disable_raw_mode()
-        .map_err(|e| DashboardError::Terminal(e.to_string()))?;
+    crossterm::terminal::disable_raw_mode().map_err(|e| DashboardError::Terminal(e.to_string()))?;
     crossterm::execute!(
         terminal.backend_mut(),
         crossterm::terminal::LeaveAlternateScreen

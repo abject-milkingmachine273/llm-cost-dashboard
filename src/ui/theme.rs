@@ -4,10 +4,14 @@ pub struct Theme;
 
 impl Theme {
     pub fn title() -> Style {
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
     }
     pub fn header() -> Style {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
     }
     pub fn ok() -> Style {
         Style::default().fg(Color::Green)

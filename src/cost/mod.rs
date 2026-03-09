@@ -110,7 +110,11 @@ impl CostLedger {
                 let total_cost: f64 = recs.iter().map(|r| r.total_cost_usd).sum();
                 let total_in: u64 = recs.iter().map(|r| r.input_tokens).sum();
                 let total_out: u64 = recs.iter().map(|r| r.output_tokens).sum();
-                let avg_cost = if count > 0 { total_cost / count as f64 } else { 0.0 };
+                let avg_cost = if count > 0 {
+                    total_cost / count as f64
+                } else {
+                    0.0
+                };
                 let mut latencies: Vec<u64> = recs.iter().map(|r| r.latency_ms).collect();
                 latencies.sort_unstable();
                 let avg_lat = if count > 0 {
@@ -206,7 +210,9 @@ mod tests {
     fn test_add_record_increases_len() {
         let mut ledger = CostLedger::new();
         assert_eq!(ledger.len(), 0);
-        ledger.add(make_record("claude-sonnet-4-6", 100, 50, 100)).unwrap();
+        ledger
+            .add(make_record("claude-sonnet-4-6", 100, 50, 100))
+            .unwrap();
         assert_eq!(ledger.len(), 1);
     }
 
@@ -218,8 +224,12 @@ mod tests {
     #[test]
     fn test_total_usd_sums_records() {
         let mut ledger = CostLedger::new();
-        ledger.add(make_record("claude-sonnet-4-6", 1_000_000, 0, 100)).unwrap();
-        ledger.add(make_record("claude-sonnet-4-6", 1_000_000, 0, 100)).unwrap();
+        ledger
+            .add(make_record("claude-sonnet-4-6", 1_000_000, 0, 100))
+            .unwrap();
+        ledger
+            .add(make_record("claude-sonnet-4-6", 1_000_000, 0, 100))
+            .unwrap();
         assert!((ledger.total_usd() - 6.00).abs() < 1e-9);
     }
 
@@ -235,8 +245,12 @@ mod tests {
     fn test_by_model_groups_correctly() {
         let mut ledger = CostLedger::new();
         ledger.add(make_record("gpt-4o-mini", 100, 50, 10)).unwrap();
-        ledger.add(make_record("gpt-4o-mini", 200, 100, 20)).unwrap();
-        ledger.add(make_record("claude-sonnet-4-6", 300, 150, 30)).unwrap();
+        ledger
+            .add(make_record("gpt-4o-mini", 200, 100, 20))
+            .unwrap();
+        ledger
+            .add(make_record("claude-sonnet-4-6", 300, 150, 30))
+            .unwrap();
         let stats = ledger.by_model();
         assert_eq!(stats["gpt-4o-mini"].request_count, 2);
         assert_eq!(stats["claude-sonnet-4-6"].request_count, 1);

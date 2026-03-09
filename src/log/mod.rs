@@ -24,7 +24,13 @@ pub struct LogEntry {
 }
 
 impl LogEntry {
-    pub fn new(model: impl Into<String>, provider: impl Into<String>, input: u64, output: u64, latency_ms: u64) -> Self {
+    pub fn new(
+        model: impl Into<String>,
+        provider: impl Into<String>,
+        input: u64,
+        output: u64,
+        latency_ms: u64,
+    ) -> Self {
         Self {
             id: Uuid::new_v4(),
             timestamp: Utc::now(),
@@ -93,7 +99,9 @@ impl RequestLog {
     }
 
     pub fn filter_by_model<'a>(&'a self, model: &'a str) -> impl Iterator<Item = &'a LogEntry> {
-        self.entries.iter().filter(move |e| e.model.eq_ignore_ascii_case(model))
+        self.entries
+            .iter()
+            .filter(move |e| e.model.eq_ignore_ascii_case(model))
     }
 
     pub fn all(&self) -> &[LogEntry] {
@@ -167,7 +175,8 @@ mod tests {
     #[test]
     fn test_ingest_valid_json_line() {
         let mut log = RequestLog::new();
-        let line = r#"{"model":"gpt-4o-mini","input_tokens":512,"output_tokens":256,"latency_ms":34}"#;
+        let line =
+            r#"{"model":"gpt-4o-mini","input_tokens":512,"output_tokens":256,"latency_ms":34}"#;
         log.ingest_line(line).unwrap();
         assert_eq!(log.len(), 1);
         assert_eq!(log.all()[0].model, "gpt-4o-mini");

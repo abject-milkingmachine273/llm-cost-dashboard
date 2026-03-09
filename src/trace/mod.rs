@@ -141,15 +141,13 @@ mod tests {
 
     #[test]
     fn test_span_with_tag() {
-        let s = TraceSpan::new("req1", "gpt-4o", "openai", 100, 50, 42)
-            .with_tag("production");
+        let s = TraceSpan::new("req1", "gpt-4o", "openai", 100, 50, 42).with_tag("production");
         assert!(s.tags.contains(&"production".to_string()));
     }
 
     #[test]
     fn test_span_failed_marks_success_false() {
-        let s = TraceSpan::new("req1", "gpt-4o", "openai", 100, 50, 42)
-            .failed("timeout");
+        let s = TraceSpan::new("req1", "gpt-4o", "openai", 100, 50, 42).failed("timeout");
         assert!(!s.success);
         assert!(s.tags.iter().any(|t| t.starts_with("error:")));
     }
@@ -165,8 +163,22 @@ mod tests {
     #[test]
     fn test_store_total_cost() {
         let mut store = SpanStore::new();
-        store.record(TraceSpan::new("r1", "claude-sonnet-4-6", "anthropic", 1_000_000, 0, 10));
-        store.record(TraceSpan::new("r2", "claude-sonnet-4-6", "anthropic", 1_000_000, 0, 10));
+        store.record(TraceSpan::new(
+            "r1",
+            "claude-sonnet-4-6",
+            "anthropic",
+            1_000_000,
+            0,
+            10,
+        ));
+        store.record(TraceSpan::new(
+            "r2",
+            "claude-sonnet-4-6",
+            "anthropic",
+            1_000_000,
+            0,
+            10,
+        ));
         assert!((store.total_cost() - 6.0).abs() < 1e-9);
     }
 
