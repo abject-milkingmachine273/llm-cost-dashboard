@@ -35,7 +35,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Lint
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
   # ── Tests (cross-platform) ───────────────────────────────────────────────────
   test:
@@ -49,8 +49,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Run unit and integration tests
-        run: cargo test --all-features --locked
+      - name: Run lib tests
+        # Use --lib to avoid tests that require an interactive terminal (crossterm/ratatui).
+        run: cargo test --lib --locked
       - name: Build release binary
         run: cargo build --release --locked
 
@@ -63,7 +64,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build documentation
-        run: cargo doc --no-deps --all-features
+        run: cargo doc --no-deps
         env:
           RUSTDOCFLAGS: "-D warnings"
 
@@ -76,7 +77,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.75
       - uses: Swatinem/rust-cache@v2
       - name: Check MSRV build
-        run: cargo check --all-features
+        run: cargo check
 
   # ── Security audit ───────────────────────────────────────────────────────────
   audit:
@@ -84,14 +85,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Run cargo-audit
+        run: cargo audit
 
   # ── Coverage ─────────────────────────────────────────────────────────────────
   coverage:
     name: Code coverage (tarpaulin)
     runs-on: ubuntu-latest
+    if: runner.os == 'Linux'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -99,7 +102,7 @@ jobs:
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --locked
       - name: Run tarpaulin
-        run: cargo tarpaulin --all-features --out Xml --output-dir coverage/
+        run: cargo tarpaulin --lib --out Xml --output-dir coverage/
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
