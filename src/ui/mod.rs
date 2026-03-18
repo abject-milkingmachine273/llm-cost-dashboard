@@ -184,7 +184,18 @@ pub fn run(mut app: App) -> Result<(), DashboardError> {
     result
 }
 
-/// Inner event loop; separated so that terminal teardown is always reached.
+/// Inner event loop; separated from [`run`] so that terminal teardown in
+/// `run` is always reached regardless of whether the loop exits normally or
+/// with an error.
+///
+/// Redraws the dashboard on every 250 ms tick and processes keyboard events.
+/// Returns when `app.running` is `false` (set by the quit key handler) or
+/// when any terminal operation returns an error.
+///
+/// # Errors
+///
+/// Returns [`DashboardError::Terminal`] if a [`crossterm`] draw, poll, or
+/// read operation fails.
 fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     app: &mut App,
