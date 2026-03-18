@@ -94,7 +94,6 @@ jobs:
   coverage:
     name: Code coverage (tarpaulin)
     runs-on: ubuntu-latest
-    if: runner.os == 'Linux'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
