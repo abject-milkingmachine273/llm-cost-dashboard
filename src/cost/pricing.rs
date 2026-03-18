@@ -1,6 +1,13 @@
-//! Per-model token pricing table (USD per 1M tokens).
+//! Per-model token pricing table (USD per 1 million tokens).
+//!
+//! All prices are stored as `f64` values representing US dollars per 1,000,000
+//! tokens.  Use [`compute_cost`] for convenience or [`lookup`] when you need
+//! to inspect the raw rates.
 
-/// `(model_id, input_usd_per_1m, output_usd_per_1m)`
+/// Statically known per-model pricing entries.
+///
+/// Each tuple is `(model_id, input_usd_per_1m, output_usd_per_1m)`.
+/// Model IDs are matched case-insensitively by [`lookup`].
 pub const PRICING: &[(&str, f64, f64)] = &[
     ("claude-opus-4-6", 15.00, 75.00),
     ("claude-sonnet-4-6", 3.00, 15.00),
@@ -14,10 +21,19 @@ pub const PRICING: &[(&str, f64, f64)] = &[
     ("gemini-1.5-flash", 0.075, 0.30),
 ];
 
-/// Fallback pricing for unknown models (mid-range estimate).
+/// Fallback pricing used when the model is not found in [`PRICING`].
+///
+/// This is a mid-range estimate to avoid wildly incorrect costs for unknown
+/// models.  The [`crate::error::DashboardError::UnknownModel`] variant is
+/// available for callers that wish to surface the absence explicitly.
 pub const FALLBACK_PRICING: (f64, f64) = (5.00, 15.00);
 
-/// Look up pricing for a model. Returns `(input_per_1m, output_per_1m)`.
+/// Look up pricing for `model`.
+///
+/// The lookup is case-insensitive.  If the model is not found, returns
+/// [`FALLBACK_PRICING`].
+///
+/// Returns `(input_usd_per_1m_tokens, output_usd_per_1m_tokens)`.
 pub fn lookup(model: &str) -> (f64, f64) {
     PRICING
         .iter()
@@ -26,7 +42,18 @@ pub fn lookup(model: &str) -> (f64, f64) {
         .unwrap_or(FALLBACK_PRICING)
 }
 
-/// Compute cost in USD from token counts.
+/// Compute the total cost in USD for the given token counts.
+///
+/// Uses [`lookup`] internally; unknown models fall back to [`FALLBACK_PRICING`].
+///
+/// # Examples
+///
+/// ```
+/// use llm_cost_dashboard::cost::pricing::compute_cost;
+///
+/// let cost = compute_cost("claude-sonnet-4-6", 1_000_000, 0);
+/// assert!((cost - 3.00).abs() < 1e-9);
+/// ```
 pub fn compute_cost(model: &str, input_tokens: u64, output_tokens: u64) -> f64 {
     let (input_rate, output_rate) = lookup(model);
     (input_tokens as f64 * input_rate + output_tokens as f64 * output_rate) / 1_000_000.0
@@ -78,6 +105,96 @@ mod tests {
         for (model, i, o) in PRICING {
             assert!(*i > 0.0, "model {model} has zero input rate");
             assert!(*o > 0.0, "model {model} has zero output rate");
+        }
+    }
+
+    // --- per-model exact pricing tests ---
+
+    #[test]
+    fn test_claude_opus_pricing() {
+        let (i, o) = lookup("claude-opus-4-6");
+        assert!((i - 15.00).abs() < 1e-9);
+        assert!((o - 75.00).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_claude_haiku_pricing() {
+        let (i, o) = lookup("claude-haiku-4-5");
+        assert!((i - 0.25).abs() < 1e-9);
+        assert!((o - 1.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_gpt4o_pricing() {
+        let (i, o) = lookup("gpt-4o");
+        assert!((i - 5.00).abs() < 1e-9);
+        assert!((o - 15.00).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_gpt4o_mini_pricing() {
+        let (i, o) = lookup("gpt-4o-mini");
+        assert!((i - 0.15).abs() < 1e-9);
+        assert!((o - 0.60).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_gpt4_turbo_pricing() {
+        let (i, o) = lookup("gpt-4-turbo");
+        assert!((i - 10.00).abs() < 1e-9);
+        assert!((o - 30.00).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_o1_preview_pricing() {
+        let (i, o) = lookup("o1-preview");
+        assert!((i - 15.00).abs() < 1e-9);
+        assert!((o - 60.00).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_o3_mini_pricing() {
+        let (i, o) = lookup("o3-mini");
+        assert!((i - 1.10).abs() < 1e-9);
+        assert!((o - 4.40).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_gemini_15_pro_pricing() {
+        let (i, o) = lookup("gemini-1.5-pro");
+        assert!((i - 3.50).abs() < 1e-9);
+        assert!((o - 10.50).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_gemini_15_flash_pricing() {
+        let (i, o) = lookup("gemini-1.5-flash");
+        assert!((i - 0.075).abs() < 1e-9);
+        assert!((o - 0.30).abs() < 1e-9);
+    }
+
+    // --- edge cases ---
+
+    #[test]
+    fn test_compute_cost_max_u64_does_not_panic() {
+        // u64::MAX tokens should produce a very large but finite cost, not panic.
+        let cost = compute_cost("gpt-4o-mini", u64::MAX, 0);
+        assert!(cost.is_finite() || cost.is_infinite()); // either is acceptable, just no panic
+    }
+
+    #[test]
+    fn test_compute_cost_fractional_result() {
+        // 1 token at $0.15/1M = $0.00000015
+        let cost = compute_cost("gpt-4o-mini", 1, 0);
+        assert!((cost - 0.15 / 1_000_000.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_all_pricing_table_entries_lookable() {
+        for (model, expected_i, expected_o) in PRICING {
+            let (i, o) = lookup(model);
+            assert!((i - expected_i).abs() < 1e-9, "input mismatch for {model}");
+            assert!((o - expected_o).abs() < 1e-9, "output mismatch for {model}");
         }
     }
 }

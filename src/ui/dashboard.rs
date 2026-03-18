@@ -1,3 +1,9 @@
+//! # Dashboard Layout
+//!
+//! Top-level dashboard composition.  [`render`] is called on every tick and
+//! assembles the full terminal layout from sub-panels defined in
+//! [`crate::ui::widgets`].
+
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::Modifier,

@@ -1,3 +1,9 @@
+//! # Dashboard Widgets
+//!
+//! Reusable ratatui widget render functions.  Each function renders a single
+//! logical panel of the dashboard and has no side effects beyond writing to
+//! the provided [`Frame`].
+
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
