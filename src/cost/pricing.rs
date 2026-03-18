@@ -21,6 +21,7 @@ pub const PRICING: &[(&str, f64, f64)] = &[
     ("gpt-4-turbo", 10.00, 30.00),
     // OpenAI — o-series reasoning models
     ("o1", 15.00, 60.00),
+    ("o1-preview", 15.00, 60.00),
     ("o1-mini", 1.10, 4.40),
     ("o3", 10.00, 40.00),
     ("o3-mini", 1.10, 4.40),

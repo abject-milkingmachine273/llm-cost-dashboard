@@ -5,6 +5,21 @@ All notable changes to `llm-cost-dashboard` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Production-readiness pass: doc comments verified and completed on every public
+  type, field, function, and trait across all modules.
+- `ui/mod.rs`: full `#[cfg(test)]` test suite covering `App` state transitions,
+  line ingestion, demo-data loading, scroll, and reset.
+- CI workflow updated: `cargo doc --no-deps` job added with
+  `RUSTDOCFLAGS=-D warnings`; MSRV pinned to 1.75.
+- `CHANGELOG.md`: this `[Unreleased]` section.
+- Restored `o1-preview` entry to the pricing table (`$15.00/$60.00` per 1M
+  tokens) so that `integration_tests.rs` tests that reference this model name
+  pass without fallback pricing.
+
 ---
 
 ## [1.0.0] - 2026-03-17
