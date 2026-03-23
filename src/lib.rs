@@ -80,5 +80,9 @@ pub use validator::{
     AnthropicValidator, GoogleValidator, MultiValidator, OpenAiValidator, ValidationResult,
 };
 pub use webhook::{WebhookConfig, WebhookFormat};
-pub use allocation::{AllocationBucket, AllocationRule, CostAllocator};
+pub use allocation::{
+    AllocationBucket, AllocationRule, AllocationTag, AllocationLedger, AllocationReport,
+    BudgetHierarchy, CostAllocation, CostAllocator, Environment, ProjectBudget, TeamBudget,
+    TeamUsage, teams_tab_rows,
+};
 pub use trends::{DailySpend, TrendAnalyzer, TrendReport};
