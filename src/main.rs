@@ -82,6 +82,32 @@ struct Cli {
     /// Example: `llm-dash --session experiment-v2 --log-file requests.ndjson`
     #[arg(long, value_name = "SESSION_NAME")]
     session: Option<String>,
+
+    /// Show multi-provider cost comparison: rank all models by monthly cost for the
+    /// given workload and exit (no TUI).
+    ///
+    /// The workload is derived from the loaded log data when `--log-file` or
+    /// `--demo` is given, or from `--workload-rph` when no log data is present.
+    ///
+    /// Example: `llm-dash --demo --compare`
+    #[arg(long)]
+    compare: bool,
+
+    /// Requests per hour for multi-provider cost comparison projections.
+    ///
+    /// Only used when `--compare` is set and no log data is available.
+    /// Default: 1000 requests / hour.
+    #[arg(long, value_name = "N", default_value = "1000")]
+    workload_rph: u64,
+
+    /// Print a Holt-Winters cost forecast and exit (no TUI).
+    ///
+    /// Requires at least 3 observations from the loaded log file or demo data.
+    /// Projects spend over the next hour, day, week, and month.
+    ///
+    /// Example: `llm-dash --log-file requests.ndjson --forecast`
+    #[arg(long)]
+    forecast: bool,
 }
 
 fn main() {
@@ -192,6 +218,112 @@ fn main() {
                 std::process::exit(1);
             }
         }
+    }
+
+    // Handle --compare: print multi-provider cost comparison and exit.
+    if cli.compare {
+        use llm_cost_dashboard::comparison::{ProviderComparison, WorkloadProfile};
+
+        let profile = WorkloadProfile::from_ledger(&app.ledger)
+            .unwrap_or_else(|| {
+                info!(rph = cli.workload_rph, "deriving workload profile from --workload-rph");
+                WorkloadProfile::from_rph(cli.workload_rph)
+            });
+
+        info!(
+            avg_input = profile.avg_input_tokens,
+            avg_output = profile.avg_output_tokens,
+            requests_per_day = profile.requests_per_day,
+            "computing provider comparison"
+        );
+
+        let cmp = ProviderComparison::compute(&profile);
+
+        println!(
+            "\nMulti-Provider Cost Comparison  ({} models, {}/day requests, {}in/{}out avg tokens)\n",
+            cmp.model_count(),
+            profile.requests_per_day,
+            profile.avg_input_tokens,
+            profile.avg_output_tokens,
+        );
+        println!(
+            "  {:<45}  {:>12}  {:>10}  {:>15}  {}",
+            "Model", "Monthly USD", "Daily USD", "Per-1k-req USD", "Provider"
+        );
+        println!("  {}", "-".repeat(100));
+        for proj in cmp.ranked() {
+            println!(
+                "  {:<45}  {:>12.4}  {:>10.4}  {:>15.4}  {}",
+                proj.model,
+                proj.monthly_cost_usd,
+                proj.daily_cost_usd,
+                proj.cost_per_1k_requests,
+                proj.provider,
+            );
+        }
+        println!(
+            "\nCheapest: {} (${:.4}/mo)  |  Most expensive: {} (${:.4}/mo)  |  Spread: {:.0}x",
+            cmp.cheapest().model,
+            cmp.cheapest().monthly_cost_usd,
+            cmp.most_expensive().model,
+            cmp.most_expensive().monthly_cost_usd,
+            cmp.cost_spread_ratio(),
+        );
+        return;
+    }
+
+    // Handle --forecast: print Holt-Winters forecast and exit.
+    if cli.forecast {
+        use llm_cost_dashboard::forecast::CostForecaster;
+
+        let records = app.ledger.records();
+        if records.len() < 3 {
+            eprintln!(
+                "Error: --forecast requires at least 3 cost records (have {}). \
+                 Use --log-file or --demo to load data first.",
+                records.len()
+            );
+            std::process::exit(1);
+        }
+
+        let mut forecaster = CostForecaster::new();
+        let mut cumulative = 0.0_f64;
+        for record in records {
+            cumulative += record.total_cost_usd;
+            let ts = record.timestamp.timestamp() as f64;
+            forecaster.record(ts, cumulative);
+        }
+
+        match forecaster.forecast(Some(cli.budget)) {
+            Some(hw) => {
+                println!("\nHolt-Winters Cost Forecast (based on {} records)\n", records.len());
+                println!("  Next hour:  ${:.6}", hw.next_hour_usd);
+                println!("  Next day:   ${:.4}", hw.next_day_usd);
+                println!("  Next week:  ${:.2}", hw.next_week_usd);
+                println!("  Next month: ${:.2}", hw.next_month_usd);
+                println!(
+                    "\n  80%% CI (next hour): [${:.6}, ${:.6}]",
+                    hw.confidence_interval.0,
+                    hw.confidence_interval.1
+                );
+                if hw.budget_warning {
+                    eprintln!(
+                        "\n  WARNING: forecasted monthly spend (${:.2}) exceeds 80%% of \
+                         budget (${:.2})!",
+                        hw.next_month_usd,
+                        cli.budget
+                    );
+                } else {
+                    println!("  Budget status: OK (monthly forecast ${:.2} < 80%% of ${:.2} budget)",
+                        hw.next_month_usd, cli.budget);
+                }
+            }
+            None => {
+                eprintln!("Error: insufficient data for Holt-Winters forecast (need >= 3 observations).");
+                std::process::exit(1);
+            }
+        }
+        return;
     }
 
     // If --serve was requested, wrap the ledger in Arc<Mutex<>> and spawn the

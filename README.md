@@ -19,12 +19,11 @@ Structured logging via [tracing](https://tracing.rs). No database. No network. N
 `llm-cost-dashboard` is a Rust terminal application (TUI) that reads a stream of
 LLM request records from a log file or stdin, computes per-request USD costs from a
 built-in pricing table, and renders a live dashboard showing total spend, per-model
-breakdowns, budget status, and projected monthly bills. It also includes a rolling
-Z-score anomaly detector that flags unexpected cost spikes, an OLS linear regression
-forecaster that projects spend to end-of-month, and a Slack-compatible webhook
-alerter that delivers budget and anomaly alerts with per-kind cooldown
-deduplication. Everything runs locally -- no cloud accounts, no telemetry, no
-databases.
+breakdowns, budget status, and projected monthly bills. It includes a rolling
+Z-score anomaly detector, an OLS forecaster, a Holt-Winters exponential smoother for
+short-horizon projections, side-by-side multi-provider cost comparison across 80+
+models, session tracking, CSV/JSON export, and a Slack-compatible webhook alerter.
+Everything runs locally -- no cloud accounts, no telemetry, no databases.
 
 ---
 
@@ -994,6 +993,126 @@ for report in fired {
     println!("Wrote: {}", report.path);
 }
 ```
+
+---
+
+## Feature Gallery
+
+### Multi-Provider Cost Comparison
+
+`ProviderComparison` ranks every model in the 80+ model pricing table by projected monthly cost for your actual workload.
+
+```rust,no_run
+use llm_cost_dashboard::comparison::{ProviderComparison, WorkloadProfile};
+
+// Derive profile from your real request history.
+let profile = WorkloadProfile::from_ledger(&ledger)
+    .unwrap_or_else(|| WorkloadProfile::from_rph(1000)); // 1000 req/hr fallback
+
+let cmp = ProviderComparison::compute(&profile);
+
+println!("Cheapest: {} at ${:.2}/mo", cmp.cheapest().model, cmp.cheapest().monthly_cost_usd);
+println!("Most expensive: {} at ${:.2}/mo",
+    cmp.most_expensive().model, cmp.most_expensive().monthly_cost_usd);
+println!("Cost spread: {:.0}x", cmp.cost_spread_ratio());
+
+for proj in cmp.top_n_cheapest(10) {
+    println!("  {:<45} ${:8.2}/mo  ${:.4}/1k req  ({}) ",
+        proj.model, proj.monthly_cost_usd, proj.cost_per_1k_requests, proj.provider);
+}
+```
+
+From the CLI:
+
+```bash
+llm-dash --demo --compare --workload-rph 1000
+```
+
+The TUI shows a "Compare" tab (`c` to switch) with a full ranked table updated from your live request history.
+
+### Holt-Winters Cost Forecasting
+
+`CostForecaster` applies double exponential smoothing to project spend over the next hour, day, week, and month.  Unlike OLS, it adapts to changing spend rates (e.g. a marketing campaign that doubles traffic).
+
+```rust,no_run
+use llm_cost_dashboard::forecast::CostForecaster;
+
+let mut forecaster = CostForecaster::new();  // default α=0.3, β=0.1
+// Or tune the smoothing parameters:
+// let mut forecaster = CostForecaster::new().with_params(0.4, 0.15);
+
+// Feed cumulative spend observations (unix_secs, cumulative_usd).
+forecaster.record(1_700_000_000.0, 0.0);
+forecaster.record(1_700_003_600.0, 0.50);
+forecaster.record(1_700_007_200.0, 1.05);
+
+if let Some(hw) = forecaster.forecast(Some(100.0)) {
+    println!("Next hour:  ${:.4}", hw.next_hour_usd);
+    println!("Next day:   ${:.2}", hw.next_day_usd);
+    println!("Next week:  ${:.2}", hw.next_week_usd);
+    println!("Next month: ${:.2}", hw.next_month_usd);
+    println!("80%% CI:     [{:.4}, {:.4}]",
+        hw.confidence_interval.0, hw.confidence_interval.1);
+    if hw.budget_warning {
+        eprintln!("WARNING: forecasted spend exceeds 80%% of budget!");
+    }
+}
+```
+
+From the CLI:
+
+```bash
+# Print a forecast summary and exit.
+llm-dash --demo --forecast
+```
+
+The TUI shows a "Projected Spend" panel that updates every tick.  When the forecast exceeds 80 % of the budget the panel turns red.
+
+### Anomaly Detection
+
+The `anomaly` module applies a rolling Z-score to the per-request cost time series.  Any request whose cost deviates more than 3σ from the rolling mean triggers an alert.
+
+### Session Tracking
+
+`session::SessionLedger` groups requests by session ID, enforces per-session budgets, and surfaces per-session spend in the TUI.
+
+### Export
+
+Press `e` in the TUI to dump the current session to `llm-costs-<timestamp>.json` and `llm-costs-<timestamp>.csv` in the working directory.
+
+```bash
+# Programmatic export via the HTTP API (--serve mode).
+curl http://localhost:8080/api/export.json > session.json
+curl http://localhost:8080/api/export.csv  > session.csv
+```
+
+### Configuration Reference
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--budget USD` | `10.0` | Monthly hard budget limit |
+| `--log-file PATH` | — | NDJSON file to tail |
+| `--demo` | off | Pre-load synthetic demo data |
+| `--serve PORT` | — | Start HTTP API on given port alongside TUI |
+| `--webhook-url URL` | — | Slack/generic webhook destination (repeatable) |
+| `--webhook-threshold USD` | 80 % of `--budget` | USD spend level that triggers webhook |
+| `--webhook-format` | `generic` | `slack` or `generic` |
+| `--compare` | off | Show multi-provider cost comparison panel |
+| `--workload-rph N` | derived from log | Requests per hour for comparison projection |
+| `--forecast` | off | Print Holt-Winters forecast summary and exit |
+
+### Keyboard Controls (TUI)
+
+| Key | Action |
+|-----|--------|
+| `q` / `Esc` | Quit |
+| `r` | Reset all data |
+| `d` | Load demo data |
+| `e` | Export session to JSON + CSV |
+| `j` / `Down` | Scroll requests down |
+| `k` / `Up` | Scroll requests up |
+| `c` | Switch to Compare tab |
+| `f` | Switch to Forecast tab |
 
 ---
 
