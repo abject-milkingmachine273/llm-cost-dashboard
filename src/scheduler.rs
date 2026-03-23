@@ -114,7 +114,8 @@ impl CronSchedule {
                 return Ok(None);
             }
             // Accept day-of-week abbreviations.
-            let s_norm = match s.to_uppercase().as_str() {
+            let upper = s.to_uppercase();
+            let s_norm = match upper.as_str() {
                 "SUN" => "0",
                 "MON" => "1",
                 "TUE" => "2",
