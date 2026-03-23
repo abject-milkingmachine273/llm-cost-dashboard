@@ -825,6 +825,178 @@ The `export` module also provides lower-level path-based helpers:
 
 ---
 
+## FinOps Cost Tagging
+
+The `tagging` module adds structured tag-based cost attribution so teams can
+track LLM spend by project, team, cost centre, environment, or any custom
+dimension — without changing your existing log format.
+
+### Tag sources (applied in order)
+
+1. **Passthrough fields** — copy log fields directly as tags (e.g. `project`, `team`).
+2. **Default tags** — always present (e.g. `env=production`).
+3. **Rule-derived tags** — `TagRule` maps field patterns to tag key-value pairs.
+4. **Caller overrides** — win on conflict with all of the above.
+
+### Example
+
+```rust
+use llm_cost_dashboard::tagging::{TagEngine, TagRule, TagMatch, TaggedLedger};
+use std::collections::HashMap;
+
+let mut engine = TagEngine::new();
+
+// Always tag with environment.
+engine.add_default_tag("env", "production");
+
+// Pass the "project" field from logs straight through as a tag.
+engine.add_passthrough("project");
+
+// Derive provider from the model name.
+engine.add_rule(TagRule {
+    field: "model".to_string(),
+    pattern: TagMatch::Contains("claude".to_string()),
+    tag_key: "provider".to_string(),
+    tag_value: "anthropic".to_string(),
+});
+
+// Resolve tags for an incoming log record.
+let mut fields = HashMap::new();
+fields.insert("model".to_string(), "claude-sonnet-4-6".to_string());
+fields.insert("project".to_string(), "recommendation-engine".to_string());
+
+let tags = engine.resolve(&fields);
+assert_eq!(tags.get("provider").map(|s| s.as_str()), Some("anthropic"));
+assert_eq!(tags.get("project").map(|s| s.as_str()), Some("recommendation-engine"));
+```
+
+### Cost roll-up by tag dimension
+
+```rust
+use llm_cost_dashboard::tagging::TaggedLedger;
+
+let mut ledger = TaggedLedger::new();
+ledger.add(0.10, unix_ts, tags_for_search_team);
+ledger.add(0.20, unix_ts, tags_for_search_team);
+ledger.add(0.05, unix_ts, tags_for_billing_team);
+
+let by_team = ledger.by_tag("team");
+// Sorted from highest to lowest spend:
+for (team, total_usd) in by_team.ranked() {
+    println!("{team}: ${total_usd:.4}");
+}
+
+if let Some((top, cost)) = by_team.top_spender() {
+    println!("Top spender: {top} at ${cost:.4}");
+}
+```
+
+---
+
+## Model Recommendation Engine
+
+The `recommendations` module analyses your usage patterns and suggests cheaper
+alternative models, computing projected monthly savings for each switch.
+
+```rust
+use llm_cost_dashboard::{CostLedger, CostRecord};
+use llm_cost_dashboard::recommendations::ModelRecommender;
+
+let mut ledger = CostLedger::new();
+// ... populate ledger from your request logs ...
+
+let recommender = ModelRecommender::new(&ledger);
+
+// Print all recommendations, sorted by largest projected saving.
+for s in recommender.suggest() {
+    println!("{}", s.summary_line());
+    // Example output: "claude-sonnet-4-6 → claude-haiku-4-5 | save 92% ($18.40/mo)"
+}
+
+println!(
+    "Total potential saving: ${:.2}/mo",
+    recommender.total_projected_monthly_saving()
+);
+```
+
+**Supported current models:** claude-opus-4-6, claude-sonnet-4-6, gpt-4o,
+gpt-4-turbo, o1, o3, gemini-1.5-pro, gpt-4.5-preview, mistral-large-2411, and more.
+
+---
+
+## Team Cost Allocation
+
+The `allocation` module maps requests to team/project buckets using a priority-ordered
+rule list and supports chargeback/showback reporting workflows.
+
+```rust
+use llm_cost_dashboard::allocation::{AllocationEngine, AllocationRule};
+
+let mut engine = AllocationEngine::new();
+
+// Route sessions whose ID starts with "eng-" to the engineering team.
+engine.add_rule(AllocationRule {
+    rule_id: "eng-prefix".to_string(),
+    team: "engineering".to_string(),
+    project: "infra".to_string(),
+    session_prefix: Some("eng-".to_string()),
+    tag_key: None,
+    tag_value: None,
+});
+
+// Route by metadata tag for other teams.
+engine.add_rule(AllocationRule {
+    rule_id: "data-tag".to_string(),
+    team: "data-science".to_string(),
+    project: "ml-platform".to_string(),
+    session_prefix: None,
+    tag_key: Some("team".to_string()),
+    tag_value: Some("data".to_string()),
+});
+
+let allocation = engine.allocate("eng-alice-session-42", &tags);
+println!("Team: {} / Project: {}", allocation.team, allocation.project);
+```
+
+---
+
+## Automated Export Scheduling
+
+The `scheduler` module runs cron-based scheduled cost exports so you always
+have up-to-date CSV/JSON reports without manual intervention.
+
+```rust
+use llm_cost_dashboard::scheduler::{ExportSchedule, ScheduledExportFormat, Scheduler};
+use llm_cost_dashboard::cost::CostLedger;
+
+let ledger = CostLedger::new();
+let mut scheduler = Scheduler::new(ledger);
+
+// Export CSV every Monday at 09:00.
+scheduler.add_schedule(ExportSchedule {
+    cron: "0 9 * * MON".to_string(),
+    format: ScheduledExportFormat::Csv,
+    output_dir: "/var/reports/llm".to_string(),
+    label: "weekly-csv".to_string(),
+});
+
+// Export JSON summary on the 1st of every month.
+scheduler.add_schedule(ExportSchedule {
+    cron: "0 8 1 * *".to_string(),
+    format: ScheduledExportFormat::JsonSummary,
+    output_dir: "/var/reports/llm".to_string(),
+    label: "monthly-summary".to_string(),
+});
+
+// Call this each tick (e.g. every minute) to fire due schedules.
+let fired = scheduler.tick(chrono::Utc::now());
+for report in fired {
+    println!("Wrote: {}", report.path);
+}
+```
+
+---
+
 ## Related projects by @Mattbusel
 
 - [tokio-prompt-orchestrator](https://github.com/Mattbusel/tokio-prompt-orchestrator) -- Rust async LLM pipeline orchestration

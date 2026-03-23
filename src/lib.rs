@@ -51,6 +51,7 @@ pub mod scheduler;
 pub mod session;
 pub mod tagging;
 pub mod trace;
+pub mod trends;
 pub mod ui;
 pub mod validator;
 pub mod webhook;
@@ -70,3 +71,5 @@ pub use validator::{
     AnthropicValidator, GoogleValidator, MultiValidator, OpenAiValidator, ValidationResult,
 };
 pub use webhook::{WebhookConfig, WebhookFormat};
+pub use allocation::{AllocationBucket, AllocationRule, CostAllocator};
+pub use trends::{DailySpend, TrendAnalyzer, TrendReport};
