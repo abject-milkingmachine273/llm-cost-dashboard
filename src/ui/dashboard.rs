@@ -14,6 +14,7 @@ use ratatui::{
 
 use crate::budget::BudgetEnvelope;
 use crate::cost::CostLedger;
+use crate::forecast::{ForecastResult, SpendForecaster, Trend};
 use crate::ui::{theme::Theme, widgets};
 
 /// Full dashboard rendering — called on every tick.
@@ -49,13 +50,14 @@ pub fn render(
         .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
         .split(outer[1]);
 
-    // Left col: summary + budget + cache breakdown
+    // Left col: summary + budget + forecast + cache breakdown
     let left = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(35),
-            Constraint::Percentage(35),
-            Constraint::Percentage(30),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
         ])
         .split(main[0]);
 
@@ -63,7 +65,8 @@ pub fn render(
     let monthly = ledger.projected_monthly_usd(1);
     widgets::render_summary(frame, left[0], total, monthly, ledger.len());
     widgets::render_budget(frame, left[1], budget);
-    render_cache_breakdown(frame, left[2], ledger);
+    render_forecast(frame, left[2], ledger);
+    render_cache_breakdown(frame, left[3], ledger);
 
     // Right col: model bar chart (top) + recent requests table (bottom)
     let right = Layout::default()
@@ -93,13 +96,34 @@ fn render_title(frame: &mut Frame, area: ratatui::layout::Rect, export_status: O
         ),
     ];
     if let Some(status) = export_status {
-        spans.push(Span::styled(
-            format!("  Exported: {status}"),
-            Theme::ok(),
-        ));
+        spans.push(Span::styled(format!("  Exported: {status}"), Theme::ok()));
     }
     let title = Paragraph::new(Line::from(spans));
     frame.render_widget(title, area);
+}
+
+/// Render a compact API key validation status line in the header area.
+///
+/// Intended for future use when keys are configured at startup.
+#[allow(dead_code)]
+pub fn render_validation_status(
+    frame: &mut Frame,
+    area: ratatui::layout::Rect,
+    statuses: &[(&str, bool)],
+) {
+    let spans: Vec<Span> = statuses
+        .iter()
+        .flat_map(|(provider, valid)| {
+            let style = if *valid { Theme::ok() } else { Theme::danger() };
+            let icon = if *valid { "✓" } else { "✗" };
+            vec![
+                Span::styled(format!(" {provider}:{icon}"), style),
+                Span::raw(" "),
+            ]
+        })
+        .collect();
+    let paragraph = Paragraph::new(Line::from(spans));
+    frame.render_widget(paragraph, area);
 }
 
 fn render_help(frame: &mut Frame, area: ratatui::layout::Rect) {
@@ -199,6 +223,62 @@ fn render_requests_table(
     .row_highlight_style(Theme::highlight().add_modifier(Modifier::BOLD));
 
     frame.render_widget(table, area);
+}
+
+/// Render the cost forecast widget showing projected daily/monthly spend and trend.
+fn render_forecast(frame: &mut Frame, area: ratatui::layout::Rect, ledger: &CostLedger) {
+    // Build a SpendForecaster from all records (cumulative cost over time).
+    let mut forecaster = SpendForecaster::new();
+    let mut cumulative = 0.0f64;
+    for record in ledger.records() {
+        cumulative += record.total_cost_usd;
+        forecaster.record(record.timestamp.timestamp() as f64, cumulative);
+    }
+    let fc: Option<ForecastResult> = forecaster.forecast(None);
+
+    let lines = if let Some(ref fc) = fc {
+        let (trend_char, trend_style) = match fc.trend {
+            Trend::Accelerating => ("↑", Theme::warn()),
+            Trend::Stable => ("→", Theme::normal()),
+            Trend::Decelerating => ("↓", Theme::ok()),
+        };
+        vec![
+            Line::from(vec![
+                Span::styled("Proj/day:  ", Theme::dim()),
+                Span::styled(format!("${:.6}", fc.projected_daily_usd), Theme::ok()),
+                Span::raw("  "),
+                Span::styled(trend_char, trend_style),
+            ]),
+            Line::from(vec![
+                Span::styled("Proj/mo:   ", Theme::dim()),
+                Span::styled(
+                    format!("${:.4}", fc.projected_month_end_usd),
+                    Theme::warn(),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Confidence:", Theme::dim()),
+                Span::styled(
+                    format!(" {:.0}%", fc.confidence * 100.0),
+                    Theme::normal(),
+                ),
+            ]),
+        ]
+    } else {
+        vec![
+            Line::from(Span::styled("Proj/day:  --", Theme::dim())),
+            Line::from(Span::styled("Proj/mo:   --", Theme::dim())),
+            Line::from(Span::styled("(need ≥2 records)", Theme::dim())),
+        ]
+    };
+
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .title(" Forecast ")
+            .borders(Borders::ALL)
+            .border_style(Theme::border()),
+    );
+    frame.render_widget(paragraph, area);
 }
 
 /// Render the 7-day historical spend trend as a sparkline.

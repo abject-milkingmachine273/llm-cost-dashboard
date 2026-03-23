@@ -6,6 +6,13 @@
 //! A [`BudgetEnvelope`] tracks cumulative spend against a hard limit and an
 //! optional soft alert threshold.  It does not perform any I/O; the caller is
 //! responsible for persisting state across restarts.
+//!
+//! For a three-level org → team → project hierarchy with automatic spend
+//! roll-up, see [`hierarchy::OrgTree`].
+
+pub mod hierarchy;
+
+pub use hierarchy::{BudgetAlert, OrgSummary, OrgTree, ProjectConfig, ProjectSummary, TeamConfig, TeamSummary};
 
 use crate::error::DashboardError;
 

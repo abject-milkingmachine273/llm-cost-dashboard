@@ -12,7 +12,7 @@
 //! - [`alerting`] - webhook-based alert delivery with cooldown deduplication
 //! - [`anomaly`] - rolling Z-score cost spike detector
 //! - [`api`] - optional Axum HTTP API server (`--serve` mode)
-//! - [`budget`] - hard budget enforcement and soft alert thresholds
+//! - [`budget`] - hard budget enforcement, soft alert thresholds, and org→team→project hierarchy ([`budget::hierarchy::OrgTree`])
 //! - [`cost`] - per-request cost records and the append-only ledger
 //! - [`cost::pricing`] - static pricing table and cost computation helpers
 //! - [`error`] - unified error type
@@ -46,11 +46,14 @@ pub mod ui;
 pub mod validator;
 pub mod webhook;
 
-pub use budget::BudgetEnvelope;
+pub use budget::{
+    BudgetAlert, BudgetEnvelope, OrgSummary, OrgTree, ProjectConfig, ProjectSummary, TeamConfig,
+    TeamSummary,
+};
 pub use cost::{CacheBreakdown, CostLedger, CostRecord, ModelStats};
 pub use error::DashboardError;
 pub use export::{CostExporter, ExportFormat};
-pub use forecast::{SeasonalAdjustment, SpendForecast, TrendDirection, TrendForecaster};
+pub use forecast::{ForecastResult, SpendForecaster, Trend};
 pub use log::{LogEntry, RequestLog};
 pub use trace::{SpanStore, TraceSpan};
 pub use ui::App;

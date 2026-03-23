@@ -365,6 +365,53 @@ prevents alert floods during sustained budget overruns.
 
 ---
 
+## Org Hierarchy Budgets
+
+Model your company's LLM spend as an **org → team → project** tree.
+Spend recorded at the project level automatically rolls up to the parent
+team and the top-level org.  Any node can trigger a soft alert when its
+threshold is crossed; a hard limit blocks spend at that level.
+
+```rust,no_run
+use llm_cost_dashboard::budget::hierarchy::{OrgTree, TeamConfig, ProjectConfig};
+
+let mut tree = OrgTree::new("AcmeCorp", 1_000.0, 0.80); // $1k org limit, alert at 80%
+
+tree.add_team(TeamConfig { name: "platform".into(), limit_usd: 400.0, alert_threshold: 0.75 });
+tree.add_team(TeamConfig { name: "product".into(),  limit_usd: 500.0, alert_threshold: 0.75 });
+
+tree.add_project(ProjectConfig {
+    team: "platform".into(),
+    name: "embeddings-prod".into(),
+    limit_usd: 200.0,
+    alert_threshold: 0.90,
+}).unwrap();
+
+// Record $45 spent by platform/embeddings-prod
+let alerts = tree.spend("platform", "embeddings-prod", 45.0).unwrap();
+for alert in &alerts {
+    println!("[BUDGET ALERT] {}: {:.1}% consumed", alert.path, alert.fill * 100.0);
+}
+
+// Roll-up summary
+let summary = tree.summary();
+println!("Org total: ${:.2} / ${:.2}", summary.org_spent_usd, summary.org_limit_usd);
+for team in &summary.teams {
+    println!("  {} {:.1}%:", team.name, team.fill * 100.0);
+    for proj in &team.projects {
+        println!("    {} ${:.2}", proj.name, proj.spent_usd);
+    }
+}
+
+// Find teams burning through budget fastest
+let hot_teams = tree.teams_over_threshold(0.70);
+
+// Monthly rollover
+tree.reset_all();
+```
+
+---
+
 ## Library usage
 
 The crate exposes its core types as `llm_cost_dashboard` for embedding cost
@@ -388,6 +435,8 @@ println!("projected/mo: ${:.2}", ledger.projected_monthly_usd(1));
 | `CostLedger`          | `cost`     | Append-only ledger with aggregation helpers       |
 | `ModelStats`          | `cost`     | Per-model aggregated statistics                   |
 | `BudgetEnvelope`      | `budget`   | Hard limit + alert threshold spend tracker        |
+| `OrgTree`             | `budget::hierarchy` | Three-level org→team→project budget tree with automatic spend roll-up |
+| `BudgetAlert`         | `budget::hierarchy` | Alert emitted when any hierarchy node crosses its threshold |
 | `CostAnomalyDetector` | `anomaly`  | Rolling Z-score spike detector                    |
 | `AnomalyEvent`        | `anomaly`  | Event emitted when an anomaly is detected         |
 | `SpendForecaster`     | `forecast` | OLS linear regression spend projector             |

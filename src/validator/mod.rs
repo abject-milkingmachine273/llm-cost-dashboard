@@ -3,10 +3,14 @@
 //! Validates API keys for Anthropic, OpenAI, and Google (Gemini) by making a
 //! lightweight authenticated request to each provider's model-list endpoint.
 //!
+//! Requires the `webhooks` crate feature (enabled by default) which pulls in
+//! `reqwest`.  When the feature is disabled, every `validate` call immediately
+//! returns an error result.
+//!
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use llm_cost_dashboard::validator::{AnthropicValidator, ApiKeyValidator};
+//! use llm_cost_dashboard::validator::AnthropicValidator;
 //!
 //! # async fn run() {
 //! let v = AnthropicValidator::new();
@@ -14,15 +18,6 @@
 //! println!("valid: {}", result.is_valid);
 //! # }
 //! ```
-//!
-//! ## Types
-//!
-//! - [`ApiKeyValidator`] – async trait implemented by each provider validator
-//! - [`ValidationResult`] – outcome of a key validation attempt
-//! - [`AnthropicValidator`] – validates Anthropic keys
-//! - [`OpenAiValidator`] – validates OpenAI keys
-//! - [`GoogleValidator`] – validates Google/Gemini keys
-//! - [`MultiValidator`] – validates all configured keys and aggregates results
 
 /// Result of validating a single API key.
 #[derive(Debug, Clone)]
@@ -39,12 +34,7 @@ pub struct ValidationResult {
 
 impl ValidationResult {
     fn ok(tier: Option<String>) -> Self {
-        Self {
-            is_valid: true,
-            tier,
-            remaining_quota: None,
-            error_message: None,
-        }
+        Self { is_valid: true, tier, remaining_quota: None, error_message: None }
     }
 
     fn err(msg: impl Into<String>) -> Self {
@@ -57,19 +47,9 @@ impl ValidationResult {
     }
 }
 
-/// Async trait for provider-specific API key validation.
-#[async_trait::async_trait]
-pub trait ApiKeyValidator: Send + Sync {
-    /// Validate the given API key by making a real HTTP request to the provider.
-    async fn validate(&self, key: &str) -> ValidationResult;
-
-    /// Human-readable name of the provider this validator targets.
-    fn provider_name(&self) -> &'static str;
-}
-
 // ── Anthropic ────────────────────────────────────────────────────────────────
 
-/// Validates Anthropic API keys by calling `GET /v1/models`.
+/// Validates Anthropic API keys via `GET https://api.anthropic.com/v1/models`.
 #[derive(Debug, Default)]
 pub struct AnthropicValidator;
 
@@ -78,43 +58,28 @@ impl AnthropicValidator {
     pub fn new() -> Self {
         Self
     }
-}
 
-#[async_trait::async_trait]
-impl ApiKeyValidator for AnthropicValidator {
-    fn provider_name(&self) -> &'static str {
-        "anthropic"
-    }
-
-    async fn validate(&self, key: &str) -> ValidationResult {
+    /// Validate `key` by making a live request to the Anthropic API.
+    pub async fn validate(&self, key: &str) -> ValidationResult {
         #[cfg(feature = "webhooks")]
         {
-            use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
-
+            use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
             let client = match reqwest::Client::builder().build() {
                 Ok(c) => c,
                 Err(e) => return ValidationResult::err(format!("HTTP client error: {e}")),
             };
-
             let mut headers = HeaderMap::new();
-            let key_value = match HeaderValue::from_str(key) {
+            let key_val = match HeaderValue::from_str(key) {
                 Ok(v) => v,
                 Err(_) => return ValidationResult::err("invalid API key format"),
             };
-            headers.insert("x-api-key", key_value);
+            headers.insert("x-api-key", key_val);
             headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-
-            let resp = client
-                .get("https://api.anthropic.com/v1/models")
-                .headers(headers)
-                .send()
-                .await;
-
-            match resp {
+            match client.get("https://api.anthropic.com/v1/models").headers(headers).send().await {
                 Ok(r) if r.status().is_success() => ValidationResult::ok(Some("anthropic".into())),
-                Ok(r) if r.status() == 401 => ValidationResult::err("invalid API key (401)"),
-                Ok(r) if r.status() == 403 => ValidationResult::err("forbidden (403)"),
+                Ok(r) if r.status().as_u16() == 401 => ValidationResult::err("invalid API key (401)"),
+                Ok(r) if r.status().as_u16() == 403 => ValidationResult::err("forbidden (403)"),
                 Ok(r) => ValidationResult::err(format!("unexpected status {}", r.status())),
                 Err(e) => ValidationResult::err(format!("request failed: {e}")),
             }
@@ -125,11 +90,16 @@ impl ApiKeyValidator for AnthropicValidator {
             ValidationResult::err("HTTP support not compiled in (enable 'webhooks' feature)")
         }
     }
+
+    /// Provider name label.
+    pub fn provider_name(&self) -> &'static str {
+        "anthropic"
+    }
 }
 
 // ── OpenAI ───────────────────────────────────────────────────────────────────
 
-/// Validates OpenAI API keys by calling `GET /v1/models`.
+/// Validates OpenAI API keys via `GET https://api.openai.com/v1/models`.
 #[derive(Debug, Default)]
 pub struct OpenAiValidator;
 
@@ -138,42 +108,27 @@ impl OpenAiValidator {
     pub fn new() -> Self {
         Self
     }
-}
 
-#[async_trait::async_trait]
-impl ApiKeyValidator for OpenAiValidator {
-    fn provider_name(&self) -> &'static str {
-        "openai"
-    }
-
-    async fn validate(&self, key: &str) -> ValidationResult {
+    /// Validate `key` by making a live request to the OpenAI API.
+    pub async fn validate(&self, key: &str) -> ValidationResult {
         #[cfg(feature = "webhooks")]
         {
             use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
-
             let client = match reqwest::Client::builder().build() {
                 Ok(c) => c,
                 Err(e) => return ValidationResult::err(format!("HTTP client error: {e}")),
             };
-
             let bearer = format!("Bearer {key}");
-            let auth_value = match HeaderValue::from_str(&bearer) {
+            let auth_val = match HeaderValue::from_str(&bearer) {
                 Ok(v) => v,
                 Err(_) => return ValidationResult::err("invalid API key format"),
             };
             let mut headers = HeaderMap::new();
-            headers.insert(AUTHORIZATION, auth_value);
-
-            let resp = client
-                .get("https://api.openai.com/v1/models")
-                .headers(headers)
-                .send()
-                .await;
-
-            match resp {
+            headers.insert(AUTHORIZATION, auth_val);
+            match client.get("https://api.openai.com/v1/models").headers(headers).send().await {
                 Ok(r) if r.status().is_success() => ValidationResult::ok(Some("openai".into())),
-                Ok(r) if r.status() == 401 => ValidationResult::err("invalid API key (401)"),
-                Ok(r) if r.status() == 403 => ValidationResult::err("forbidden (403)"),
+                Ok(r) if r.status().as_u16() == 401 => ValidationResult::err("invalid API key (401)"),
+                Ok(r) if r.status().as_u16() == 403 => ValidationResult::err("forbidden (403)"),
                 Ok(r) => ValidationResult::err(format!("unexpected status {}", r.status())),
                 Err(e) => ValidationResult::err(format!("request failed: {e}")),
             }
@@ -184,11 +139,16 @@ impl ApiKeyValidator for OpenAiValidator {
             ValidationResult::err("HTTP support not compiled in (enable 'webhooks' feature)")
         }
     }
+
+    /// Provider name label.
+    pub fn provider_name(&self) -> &'static str {
+        "openai"
+    }
 }
 
 // ── Google ───────────────────────────────────────────────────────────────────
 
-/// Validates Google (Gemini) API keys by calling the Generative Language API model list.
+/// Validates Google (Gemini) API keys via the Generative Language API.
 #[derive(Debug, Default)]
 pub struct GoogleValidator;
 
@@ -197,34 +157,22 @@ impl GoogleValidator {
     pub fn new() -> Self {
         Self
     }
-}
 
-#[async_trait::async_trait]
-impl ApiKeyValidator for GoogleValidator {
-    fn provider_name(&self) -> &'static str {
-        "google"
-    }
-
-    async fn validate(&self, key: &str) -> ValidationResult {
+    /// Validate `key` by making a live request to the Google Generative Language API.
+    pub async fn validate(&self, key: &str) -> ValidationResult {
         #[cfg(feature = "webhooks")]
         {
             let client = match reqwest::Client::builder().build() {
                 Ok(c) => c,
                 Err(e) => return ValidationResult::err(format!("HTTP client error: {e}")),
             };
-
-            let url = format!(
-                "https://generativelanguage.googleapis.com/v1/models?key={key}"
-            );
-
-            let resp = client.get(&url).send().await;
-
-            match resp {
+            let url = format!("https://generativelanguage.googleapis.com/v1/models?key={key}");
+            match client.get(&url).send().await {
                 Ok(r) if r.status().is_success() => ValidationResult::ok(Some("google".into())),
-                Ok(r) if r.status() == 400 => {
+                Ok(r) if r.status().as_u16() == 400 => {
                     ValidationResult::err("invalid API key or bad request (400)")
                 }
-                Ok(r) if r.status() == 403 => ValidationResult::err("forbidden (403)"),
+                Ok(r) if r.status().as_u16() == 403 => ValidationResult::err("forbidden (403)"),
                 Ok(r) => ValidationResult::err(format!("unexpected status {}", r.status())),
                 Err(e) => ValidationResult::err(format!("request failed: {e}")),
             }
@@ -235,59 +183,60 @@ impl ApiKeyValidator for GoogleValidator {
             ValidationResult::err("HTTP support not compiled in (enable 'webhooks' feature)")
         }
     }
+
+    /// Provider name label.
+    pub fn provider_name(&self) -> &'static str {
+        "google"
+    }
 }
 
 // ── MultiValidator ───────────────────────────────────────────────────────────
 
-/// A configured (provider, key) pair to validate.
+/// A (provider, key) pair to validate.
 #[derive(Debug, Clone)]
 pub struct KeyConfig {
-    /// Provider name for display purposes.
+    /// Provider name: `"anthropic"`, `"openai"`, `"google"`, or `"gemini"`.
     pub provider: String,
     /// The API key string.
     pub key: String,
 }
 
-/// Result of validating a single configured key.
+/// Outcome of validating a single configured key.
 #[derive(Debug, Clone)]
 pub struct MultiValidationResult {
     /// Provider name.
     pub provider: String,
-    /// The validation outcome.
+    /// Validation result for this key.
     pub result: ValidationResult,
 }
 
 impl MultiValidationResult {
-    /// Display-friendly status string.
+    /// Short display string showing provider and pass/fail.
     pub fn status_str(&self) -> String {
         if self.result.is_valid {
             format!("{}: OK", self.provider)
         } else {
-            let msg = self
-                .result
-                .error_message
-                .as_deref()
-                .unwrap_or("unknown error");
+            let msg = self.result.error_message.as_deref().unwrap_or("unknown error");
             format!("{}: INVALID ({})", self.provider, msg)
         }
     }
 }
 
-/// Validates all configured API keys concurrently and aggregates results.
+/// Validates all configured API keys and aggregates results.
+///
+/// Keys are validated sequentially.  To run validations in parallel, spawn
+/// this into its own Tokio task.
 pub struct MultiValidator {
     configs: Vec<KeyConfig>,
 }
 
 impl MultiValidator {
-    /// Create a multi-validator with the provided key configurations.
+    /// Create a new multi-validator from the given key configurations.
     pub fn new(configs: Vec<KeyConfig>) -> Self {
         Self { configs }
     }
 
-    /// Validate all configured keys, returning one result per key.
-    ///
-    /// Validation is performed sequentially (to avoid complex async orchestration
-    /// without extra dependencies); callers can spawn into their own async task.
+    /// Validate every configured key and return one result per key.
     pub async fn validate_all(&self) -> Vec<MultiValidationResult> {
         let mut results = Vec::with_capacity(self.configs.len());
         for cfg in &self.configs {
@@ -297,10 +246,7 @@ impl MultiValidator {
                 "google" | "gemini" => GoogleValidator::new().validate(&cfg.key).await,
                 other => ValidationResult::err(format!("unknown provider '{other}'")),
             };
-            results.push(MultiValidationResult {
-                provider: cfg.provider.clone(),
-                result,
-            });
+            results.push(MultiValidationResult { provider: cfg.provider.clone(), result });
         }
         results
     }
@@ -332,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multi_validation_result_status_str_valid() {
+    fn test_multi_result_status_str_valid() {
         let r = MultiValidationResult {
             provider: "openai".into(),
             result: ValidationResult::ok(None),
@@ -342,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multi_validation_result_status_str_invalid() {
+    fn test_multi_result_status_str_invalid() {
         let r = MultiValidationResult {
             provider: "anthropic".into(),
             result: ValidationResult::err("401"),
@@ -353,20 +299,14 @@ mod tests {
 
     #[test]
     fn test_multi_validator_new() {
-        let configs = vec![KeyConfig {
-            provider: "openai".into(),
-            key: "sk-test".into(),
-        }];
+        let configs = vec![KeyConfig { provider: "openai".into(), key: "sk-test".into() }];
         let v = MultiValidator::new(configs);
         assert_eq!(v.configs.len(), 1);
     }
 
     #[tokio::test]
     async fn test_multi_validator_unknown_provider() {
-        let configs = vec![KeyConfig {
-            provider: "unknown-provider".into(),
-            key: "key123".into(),
-        }];
+        let configs = vec![KeyConfig { provider: "unknown".into(), key: "key".into() }];
         let v = MultiValidator::new(configs);
         let results = v.validate_all().await;
         assert_eq!(results.len(), 1);
@@ -380,20 +320,17 @@ mod tests {
     }
 
     #[test]
-    fn test_anthropic_validator_provider_name() {
+    fn test_anthropic_provider_name() {
         assert_eq!(AnthropicValidator::new().provider_name(), "anthropic");
     }
 
     #[test]
-    fn test_openai_validator_provider_name() {
+    fn test_openai_provider_name() {
         assert_eq!(OpenAiValidator::new().provider_name(), "openai");
     }
 
     #[test]
-    fn test_google_validator_provider_name() {
+    fn test_google_provider_name() {
         assert_eq!(GoogleValidator::new().provider_name(), "google");
     }
-
-    // Note: actual HTTP call tests are integration tests that require live keys
-    // and are excluded from unit test runs.
 }
