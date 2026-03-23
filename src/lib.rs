@@ -61,6 +61,9 @@ pub mod trends;
 pub mod ui;
 pub mod validator;
 pub mod webhook;
+pub mod clustering;
+pub mod sla;
+pub mod carbon;
 
 pub use budget::{
     BudgetAlert, BudgetEnvelope, OrgSummary, OrgTree, ProjectConfig, ProjectSummary, TeamConfig,
