@@ -14,6 +14,7 @@ pub mod widgets;
 
 use std::time::Duration;
 
+use chrono::Utc;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tracing::{debug, info, warn};
@@ -23,6 +24,7 @@ use crate::{
     cost::{CostLedger, CostRecord},
     error::DashboardError,
     log::RequestLog,
+    webhook::WebhookConfig,
 };
 
 /// Application state -- everything the TUI needs.
@@ -40,6 +42,10 @@ pub struct App {
     pub scroll_offset: usize,
     /// Whether the event loop should continue running.
     pub running: bool,
+    /// Optional webhook configurations for budget alerts.
+    pub webhooks: Vec<WebhookConfig>,
+    /// Last export status message (shown briefly in the title bar).
+    pub last_export_status: Option<String>,
 }
 
 impl App {
@@ -54,7 +60,14 @@ impl App {
             budget: BudgetEnvelope::new("Monthly", budget_usd, 0.8),
             scroll_offset: 0,
             running: true,
+            webhooks: Vec::new(),
+            last_export_status: None,
         }
+    }
+
+    /// Register a webhook configuration for budget-threshold alerts.
+    pub fn add_webhook(&mut self, cfg: WebhookConfig) {
+        self.webhooks.push(cfg);
     }
 
     /// Inject a cost record and update the budget envelope.
@@ -72,6 +85,78 @@ impl App {
             warn!(model = %model, error = %e, "budget limit breached");
         }
         debug!(model = %model, cost_usd = cost, "record ingested");
+
+        // Fire webhook alerts synchronously (best-effort).
+        let spent = self.budget.spent_usd;
+        let limit = self.budget.limit_usd;
+        for cfg in &self.webhooks {
+            if spent >= cfg.threshold_usd {
+                let cfg_clone = cfg.clone();
+                tokio::spawn(async move {
+                    if let Err(e) =
+                        crate::webhook::fire_budget_alert(&cfg_clone, spent, limit).await
+                    {
+                        tracing::warn!(error = %e, "webhook alert delivery failed");
+                    }
+                });
+            }
+        }
+    }
+
+    /// Export the current session data to disk as both JSON and CSV.
+    ///
+    /// Files are written to the current working directory:
+    /// - `llm-costs-<timestamp>.json`
+    /// - `llm-costs-<timestamp>.csv`
+    ///
+    /// Sets [`App::last_export_status`] to a short status message that the TUI
+    /// displays in the title bar.
+    pub fn export_session(&mut self) {
+        use std::fs;
+        let ts = Utc::now().format("%Y%m%d-%H%M%S");
+        let mut msgs: Vec<String> = Vec::new();
+
+        match self.ledger.to_json() {
+            Ok(data) => {
+                let path = format!("llm-costs-{ts}.json");
+                match fs::write(&path, &data) {
+                    Ok(()) => {
+                        info!(path, "JSON export written");
+                        msgs.push(format!("JSON→{path}"));
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "JSON export write failed");
+                        msgs.push(format!("JSON err: {e}"));
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "JSON serialization failed");
+                msgs.push(format!("JSON err: {e}"));
+            }
+        }
+
+        match self.ledger.to_csv() {
+            Ok(data) => {
+                let path = format!("llm-costs-{ts}.csv");
+                match fs::write(&path, &data) {
+                    Ok(()) => {
+                        info!(path, "CSV export written");
+                        msgs.push(format!("CSV→{path}"));
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "CSV export write failed");
+                        msgs.push(format!("CSV err: {e}"));
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "CSV serialization failed");
+                msgs.push(format!("CSV err: {e}"));
+            }
+        }
+
+        self.last_export_status = Some(msgs.join(" | "));
     }
 
     /// Parse and ingest a single newline-delimited JSON line.
@@ -143,6 +228,7 @@ impl App {
         self.log.clear();
         self.budget.reset();
         self.scroll_offset = 0;
+        self.last_export_status = None;
     }
 }
 
@@ -203,7 +289,15 @@ fn event_loop(
     info!("entering event loop");
     while app.running {
         terminal
-            .draw(|frame| dashboard::render(frame, &app.ledger, &app.budget, app.scroll_offset))
+            .draw(|frame| {
+                dashboard::render(
+                    frame,
+                    &app.ledger,
+                    &app.budget,
+                    app.scroll_offset,
+                    app.last_export_status.as_deref(),
+                )
+            })
             .map_err(|e| DashboardError::Terminal(e.to_string()))?;
 
         if event::poll(Duration::from_millis(250))
@@ -222,6 +316,10 @@ fn event_loop(
                     KeyCode::Char('d') => {
                         info!("loading demo data via keypress");
                         app.load_demo_data();
+                    }
+                    KeyCode::Char('e') => {
+                        info!("export triggered by user");
+                        app.export_session();
                     }
                     KeyCode::Char('j') | KeyCode::Down => app.scroll_down(),
                     KeyCode::Char('k') | KeyCode::Up => app.scroll_up(),

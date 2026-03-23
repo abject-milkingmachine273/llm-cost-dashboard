@@ -1,7 +1,8 @@
 //! # Request Log
 //!
 //! Ordered append log of raw LLM requests.  Supports filter-by-model,
-//! JSON serialization, and ingestion from newline-delimited JSON files.
+//! JSON serialization, ingestion from newline-delimited JSON files, and
+//! automatic provider detection from HTTP response headers.
 //!
 //! The [`RequestLog`] never panics on malformed input; callers receive a
 //! [`crate::error::DashboardError::LogParseError`] and can choose to skip the
@@ -37,6 +38,11 @@ pub struct LogEntry {
     pub success: bool,
     /// Optional error message when `success` is `false`.
     pub error: Option<String>,
+    /// Provider detected from HTTP response headers, if any.
+    ///
+    /// When present this overrides the `provider` field for display purposes.
+    /// Set via [`LogEntry::apply_header_detection`].
+    pub detected_provider: Option<String>,
 }
 
 impl LogEntry {
@@ -58,8 +64,79 @@ impl LogEntry {
             latency_ms,
             success: true,
             error: None,
+            detected_provider: None,
         }
     }
+
+    /// Inspect HTTP response headers and auto-detect the provider.
+    ///
+    /// Header rules applied in order:
+    /// 1. `x-ratelimit-limit-tokens` present → Anthropic
+    /// 2. `x-goog-request-params` present → Google/Gemini
+    /// 3. `x-request-id` with a UUID-shaped value → OpenAI
+    ///
+    /// If a provider is detected it is written to `detected_provider` and also
+    /// replaces `provider` when the current `provider` is `"unknown"`.
+    ///
+    /// `headers` is an iterator of `(header_name, header_value)` pairs.  Both
+    /// names and values are compared case-insensitively.
+    pub fn apply_header_detection<'a>(
+        &mut self,
+        headers: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) {
+        let mut detected: Option<String> = None;
+
+        for (name, value) in headers {
+            let name_lc = name.to_lowercase();
+            match name_lc.as_str() {
+                "x-ratelimit-limit-tokens" => {
+                    detected = Some("anthropic".into());
+                    break;
+                }
+                "x-goog-request-params" => {
+                    detected = Some("google".into());
+                    break;
+                }
+                "x-request-id" => {
+                    // OpenAI uses UUID-shaped request IDs; other providers may
+                    // also send this header, so we only set it as a fallback.
+                    if looks_like_uuid(value) && detected.is_none() {
+                        detected = Some("openai".into());
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(ref p) = detected {
+            self.detected_provider = Some(p.clone());
+            if self.provider == "unknown" {
+                self.provider = p.clone();
+            }
+        }
+    }
+
+    /// Return the effective provider: `detected_provider` if set, else `provider`.
+    pub fn effective_provider(&self) -> &str {
+        self.detected_provider.as_deref().unwrap_or(&self.provider)
+    }
+}
+
+/// Returns `true` if `s` looks like a UUID (8-4-4-4-12 hex digits).
+fn looks_like_uuid(s: &str) -> bool {
+    let s = s.trim();
+    if s.len() != 36 {
+        return false;
+    }
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() != 5 {
+        return false;
+    }
+    let expected_lens = [8, 4, 4, 4, 12];
+    parts
+        .iter()
+        .zip(expected_lens.iter())
+        .all(|(part, &len)| part.len() == len && part.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
 /// The JSON record format expected when tailing a log file.
@@ -102,6 +179,7 @@ impl From<IncomingRecord> for LogEntry {
             latency_ms: r.latency_ms,
             success,
             error: r.error,
+            detected_provider: None,
         }
     }
 }
@@ -147,6 +225,11 @@ impl RequestLog {
     /// Return a slice of all entries in insertion order.
     pub fn all(&self) -> &[LogEntry] {
         &self.entries
+    }
+
+    /// Return a mutable slice of all entries (used for header-based detection updates).
+    pub fn all_mut(&mut self) -> &mut [LogEntry] {
+        &mut self.entries
     }
 
     /// Number of entries in the log.
@@ -255,7 +338,6 @@ mod tests {
 
     #[test]
     fn test_ingest_unknown_model_accepted_gracefully() {
-        // Unknown model names are valid at the log layer; cost layer applies fallback pricing.
         let mut log = RequestLog::new();
         let line =
             r#"{"model":"my-custom-model","input_tokens":100,"output_tokens":50,"latency_ms":10}"#;
@@ -329,5 +411,91 @@ mod tests {
             log.ingest_line(line).unwrap();
         }
         assert_eq!(log.len(), 5);
+    }
+
+    // ── Provider auto-detection tests ────────────────────────────────────────
+
+    #[test]
+    fn test_header_detection_anthropic_via_ratelimit_header() {
+        let mut entry = LogEntry::new("claude-sonnet-4-6", "unknown", 100, 50, 10);
+        entry.apply_header_detection([("x-ratelimit-limit-tokens", "50000")]);
+        assert_eq!(entry.detected_provider.as_deref(), Some("anthropic"));
+        assert_eq!(entry.provider, "anthropic"); // upgraded from unknown
+    }
+
+    #[test]
+    fn test_header_detection_google_via_goog_params() {
+        let mut entry = LogEntry::new("gemini-1.5-flash", "unknown", 100, 50, 10);
+        entry.apply_header_detection([("x-goog-request-params", "model=gemini")]);
+        assert_eq!(entry.detected_provider.as_deref(), Some("google"));
+    }
+
+    #[test]
+    fn test_header_detection_openai_via_uuid_request_id() {
+        let mut entry = LogEntry::new("gpt-4o", "unknown", 100, 50, 10);
+        entry
+            .apply_header_detection([("x-request-id", "550e8400-e29b-41d4-a716-446655440000")]);
+        assert_eq!(entry.detected_provider.as_deref(), Some("openai"));
+    }
+
+    #[test]
+    fn test_header_detection_non_uuid_request_id_ignored() {
+        let mut entry = LogEntry::new("gpt-4o", "unknown", 100, 50, 10);
+        entry.apply_header_detection([("x-request-id", "not-a-uuid")]);
+        // Should not be detected as openai since it's not a UUID.
+        assert!(entry.detected_provider.is_none());
+    }
+
+    #[test]
+    fn test_header_detection_does_not_overwrite_known_provider() {
+        let mut entry = LogEntry::new("gpt-4o", "openai", 100, 50, 10);
+        entry.apply_header_detection([("x-ratelimit-limit-tokens", "50000")]);
+        // detected_provider is set, but provider stays "openai" (not "unknown").
+        assert_eq!(entry.detected_provider.as_deref(), Some("anthropic"));
+        assert_eq!(entry.provider, "openai"); // not overwritten
+    }
+
+    #[test]
+    fn test_header_detection_no_relevant_headers() {
+        let mut entry = LogEntry::new("gpt-4o", "unknown", 100, 50, 10);
+        entry.apply_header_detection([("content-type", "application/json")]);
+        assert!(entry.detected_provider.is_none());
+    }
+
+    #[test]
+    fn test_effective_provider_uses_detected_when_set() {
+        let mut entry = LogEntry::new("claude-sonnet-4-6", "unknown", 100, 50, 10);
+        entry.apply_header_detection([("x-ratelimit-limit-tokens", "50000")]);
+        assert_eq!(entry.effective_provider(), "anthropic");
+    }
+
+    #[test]
+    fn test_effective_provider_falls_back_to_provider_field() {
+        let entry = LogEntry::new("gpt-4o", "openai", 100, 50, 10);
+        assert_eq!(entry.effective_provider(), "openai");
+    }
+
+    #[test]
+    fn test_looks_like_uuid_valid() {
+        assert!(super::looks_like_uuid("550e8400-e29b-41d4-a716-446655440000"));
+    }
+
+    #[test]
+    fn test_looks_like_uuid_invalid_too_short() {
+        assert!(!super::looks_like_uuid("550e8400-e29b-41d4"));
+    }
+
+    #[test]
+    fn test_looks_like_uuid_invalid_non_hex() {
+        assert!(!super::looks_like_uuid("zzzzzzzz-e29b-41d4-a716-446655440000"));
+    }
+
+    #[test]
+    fn test_detected_provider_serializes_to_json() {
+        let mut entry = LogEntry::new("gpt-4o", "unknown", 10, 5, 1);
+        entry.apply_header_detection([("x-ratelimit-limit-tokens", "1000")]);
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(json.contains("detected_provider"));
+        assert!(json.contains("anthropic"));
     }
 }

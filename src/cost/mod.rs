@@ -7,6 +7,7 @@
 //! The primary entry point is [`CostLedger`].  Create records with
 //! [`CostRecord::new`] and append them with [`CostLedger::add`].
 
+pub mod anomaly;
 pub mod pricing;
 
 use std::collections::HashMap;
@@ -16,6 +17,27 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::DashboardError;
+
+/// Per-token-type cache breakdown for a single request.
+///
+/// Claude Prompt Cache tokens (cache reads) are billed at a significant
+/// discount vs. ordinary prompt tokens (cache misses / writes).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CacheBreakdown {
+    /// Input tokens that were served from the prompt cache (cache hits).
+    ///
+    /// These are billed at roughly 10% of the normal input rate for Claude
+    /// models.
+    pub cache_read_tokens: u64,
+    /// Input tokens that populated the prompt cache (cache writes).
+    ///
+    /// These are typically billed at 125% of the normal input rate for Claude.
+    pub cache_write_tokens: u64,
+    /// USD cost of cache-read tokens.
+    pub cache_read_cost_usd: f64,
+    /// USD cost of cache-write tokens.
+    pub cache_write_cost_usd: f64,
+}
 
 /// A single completed LLM request with token counts and computed USD cost.
 ///
@@ -45,6 +67,12 @@ pub struct CostRecord {
     pub latency_ms: u64,
     /// Caller-supplied or auto-generated request correlation ID.
     pub request_id: String,
+    /// Cache hit/miss breakdown (zero-valued when not applicable).
+    pub cache: CacheBreakdown,
+    /// Optional session identifier — set via `--session` or the library API.
+    ///
+    /// When `None`, the record is not associated with any named session.
+    pub session_id: Option<String>,
 }
 
 impl CostRecord {
@@ -77,7 +105,42 @@ impl CostRecord {
             total_cost_usd: input_cost + output_cost,
             latency_ms,
             request_id: Uuid::new_v4().to_string(),
+            cache: CacheBreakdown::default(),
+            session_id: None,
         }
+    }
+
+    /// Attach a session identifier to this record.
+    ///
+    /// Returns `self` for builder-style chaining.
+    pub fn with_session(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self
+    }
+
+    /// Attach cache hit/miss token counts and recompute the total cost.
+    ///
+    /// Cache-read tokens are billed at 10% of the model's normal input rate.
+    /// Cache-write tokens are billed at 125% of the model's normal input rate.
+    /// Both are *in addition* to any non-cached `input_tokens` already on the
+    /// record.
+    pub fn with_cache(
+        mut self,
+        cache_read_tokens: u64,
+        cache_write_tokens: u64,
+    ) -> Self {
+        let (ir, _) = pricing::lookup(&self.model);
+        let read_cost = cache_read_tokens as f64 * ir * 0.10 / 1_000_000.0;
+        let write_cost = cache_write_tokens as f64 * ir * 1.25 / 1_000_000.0;
+        self.cache = CacheBreakdown {
+            cache_read_tokens,
+            cache_write_tokens,
+            cache_read_cost_usd: read_cost,
+            cache_write_cost_usd: write_cost,
+        };
+        self.total_cost_usd =
+            self.input_cost_usd + self.output_cost_usd + read_cost + write_cost;
+        self
     }
 }
 
@@ -236,6 +299,14 @@ impl CostLedger {
         self.records.clear();
     }
 
+    /// Return a slice of all records in insertion order.
+    ///
+    /// This is the primary accessor for export functions that need to iterate
+    /// every record in the ledger.
+    pub fn records(&self) -> &[CostRecord] {
+        &self.records
+    }
+
     /// Sparkline data: the last `n` total_cost values scaled to integer
     /// micro-USD (multiply by 1,000,000) for use with ratatui `Sparkline`.
     pub fn sparkline_data(&self, n: usize) -> Vec<u64> {
@@ -244,6 +315,84 @@ impl CostLedger {
             .map(|r| (r.total_cost_usd * 1_000_000.0) as u64)
             .collect()
     }
+
+    /// 7-day daily spend trend.
+    ///
+    /// Returns a `Vec` of 7 elements, one per calendar day from oldest (index 0)
+    /// to today (index 6).  Each value is the total USD cost for that day.
+    /// Days with no data have a value of `0.0`.
+    pub fn seven_day_trend(&self) -> [f64; 7] {
+        let today = Utc::now().date_naive();
+        let mut trend = [0.0f64; 7];
+        for record in &self.records {
+            let day = record.timestamp.date_naive();
+            let delta = (today - day).num_days();
+            if (0..7).contains(&delta) {
+                // delta 0 = today → index 6, delta 6 → index 0
+                trend[(6 - delta) as usize] += record.total_cost_usd;
+            }
+        }
+        trend
+    }
+
+    /// Serialize all records to a JSON string.
+    ///
+    /// Returns a pretty-printed JSON array of [`CostRecord`] objects.
+    pub fn to_json(&self) -> Result<String, DashboardError> {
+        serde_json::to_string_pretty(&self.records).map_err(Into::into)
+    }
+
+    /// Serialize all records to a CSV string.
+    ///
+    /// The first line is a header row.  Each subsequent line is one
+    /// [`CostRecord`].
+    pub fn to_csv(&self) -> Result<String, DashboardError> {
+        let mut wtr = csv::Writer::from_writer(vec![]);
+        // Write header
+        wtr.write_record([
+            "id",
+            "timestamp",
+            "model",
+            "provider",
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_write_tokens",
+            "input_cost_usd",
+            "output_cost_usd",
+            "cache_read_cost_usd",
+            "cache_write_cost_usd",
+            "total_cost_usd",
+            "latency_ms",
+            "request_id",
+        ])
+        .map_err(|e| DashboardError::Ledger(e.to_string()))?;
+        for r in &self.records {
+            wtr.write_record([
+                r.id.to_string(),
+                r.timestamp.to_rfc3339(),
+                r.model.clone(),
+                r.provider.clone(),
+                r.input_tokens.to_string(),
+                r.output_tokens.to_string(),
+                r.cache.cache_read_tokens.to_string(),
+                r.cache.cache_write_tokens.to_string(),
+                format!("{:.10}", r.input_cost_usd),
+                format!("{:.10}", r.output_cost_usd),
+                format!("{:.10}", r.cache.cache_read_cost_usd),
+                format!("{:.10}", r.cache.cache_write_cost_usd),
+                format!("{:.10}", r.total_cost_usd),
+                r.latency_ms.to_string(),
+                r.request_id.clone(),
+            ])
+            .map_err(|e| DashboardError::Ledger(e.to_string()))?;
+        }
+        let bytes = wtr
+            .into_inner()
+            .map_err(|e| DashboardError::Ledger(e.to_string()))?;
+        String::from_utf8(bytes).map_err(|e| DashboardError::Ledger(e.to_string()))
+    }
+
 }
 
 #[cfg(test)]

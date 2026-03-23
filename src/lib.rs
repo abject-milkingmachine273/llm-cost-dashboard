@@ -16,10 +16,13 @@
 //! - [`cost`] - per-request cost records and the append-only ledger
 //! - [`cost::pricing`] - static pricing table and cost computation helpers
 //! - [`error`] - unified error type
-//! - [`forecast`] - OLS linear regression spend forecaster
-//! - [`log`] - newline-delimited JSON log ingestion
+//! - [`export`] - CSV and JSON cost data export (file-based and in-memory)
+//! - [`forecast`] - OLS linear regression forecaster with trend analysis and seasonal adjustment
+//! - [`log`] - newline-delimited JSON log ingestion with header-based provider detection
+//! - [`session`] - per-session budget and cost tracking
 //! - [`trace`] - lightweight distributed tracing
 //! - [`ui`] - ratatui TUI application state and event loop
+//! - [`validator`] - API key validation for Anthropic, OpenAI, and Google
 //! - [`webhook`] - Slack / generic webhook alerts on budget threshold
 //!
 //! ## Related Projects
@@ -34,16 +37,24 @@ pub mod api;
 pub mod budget;
 pub mod cost;
 pub mod error;
+pub mod export;
 pub mod forecast;
 pub mod log;
+pub mod session;
 pub mod trace;
 pub mod ui;
+pub mod validator;
 pub mod webhook;
 
 pub use budget::BudgetEnvelope;
 pub use cost::{CacheBreakdown, CostLedger, CostRecord, ModelStats};
 pub use error::DashboardError;
+pub use export::{CostExporter, ExportFormat};
+pub use forecast::{SeasonalAdjustment, SpendForecast, TrendDirection, TrendForecaster};
 pub use log::{LogEntry, RequestLog};
 pub use trace::{SpanStore, TraceSpan};
 pub use ui::App;
+pub use validator::{
+    AnthropicValidator, GoogleValidator, MultiValidator, OpenAiValidator, ValidationResult,
+};
 pub use webhook::{WebhookConfig, WebhookFormat};

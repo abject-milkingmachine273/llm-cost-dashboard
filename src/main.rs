@@ -5,9 +5,11 @@
 //! Run `llm-dash --help` for usage.
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use clap::Parser;
 use llm_cost_dashboard::ui::{self, App};
+use llm_cost_dashboard::webhook::{WebhookConfig, WebhookFormat};
 use tracing::{error, info, warn};
 
 #[derive(Parser)]
@@ -29,6 +31,29 @@ struct Cli {
     /// Start with demo data pre-loaded
     #[arg(long)]
     demo: bool,
+
+    /// Start an HTTP API server on the given port alongside the TUI.
+    ///
+    /// Exposes:
+    ///   GET /api/summary      – JSON cost summary
+    ///   GET /api/export.json  – full ledger as JSON download
+    ///   GET /api/export.csv   – full ledger as CSV download
+    #[arg(long, value_name = "PORT")]
+    serve: Option<u16>,
+
+    /// Slack or generic webhook URL to POST budget alerts to.
+    ///
+    /// May be specified multiple times for multiple destinations.
+    #[arg(long, value_name = "URL")]
+    webhook_url: Vec<String>,
+
+    /// USD threshold at which webhook alerts fire (default: 80% of --budget).
+    #[arg(long, value_name = "USD")]
+    webhook_threshold: Option<f64>,
+
+    /// Webhook payload format: "slack" or "generic" (default: generic).
+    #[arg(long, default_value = "generic", value_name = "FORMAT")]
+    webhook_format: String,
 }
 
 fn main() {
@@ -45,10 +70,29 @@ fn main() {
     info!(
         budget_usd = cli.budget,
         demo = cli.demo,
+        serve = ?cli.serve,
         "llm-dash starting"
     );
 
     let mut app = App::new(cli.budget);
+
+    // Register webhook configurations.
+    let webhook_threshold = cli
+        .webhook_threshold
+        .unwrap_or(cli.budget * 0.80);
+    let webhook_format = if cli.webhook_format.eq_ignore_ascii_case("slack") {
+        WebhookFormat::Slack
+    } else {
+        WebhookFormat::Generic
+    };
+    for url in cli.webhook_url {
+        info!(url = %url, threshold_usd = webhook_threshold, "registering webhook");
+        app.add_webhook(WebhookConfig {
+            url,
+            format: webhook_format.clone(),
+            threshold_usd: webhook_threshold,
+        });
+    }
 
     if cli.demo {
         info!("loading demo data");
@@ -83,11 +127,45 @@ fn main() {
         }
     }
 
-    info!("starting TUI event loop");
-    if let Err(e) = ui::run(app) {
-        error!(error = %e, "dashboard terminated with error");
-        eprintln!("Dashboard error: {e}");
-        std::process::exit(1);
+    // If --serve was requested, wrap the ledger in Arc<Mutex<>> and spawn the
+    // HTTP server as a background Tokio task, then run the TUI on the main thread.
+    if let Some(port) = cli.serve {
+        info!(port, "starting HTTP API server alongside TUI");
+        // Share the ledger between the HTTP server and the TUI.
+        // We clone the existing ledger data into a shared structure.
+        let shared_ledger = {
+            // Temporarily take the ledger out of `app` by rebuilding it from
+            // existing records. We can't move out of `app` while it owns the
+            // ledger, so we swap in a fresh one and rebuild the shared copy.
+            let mut fresh_ledger = llm_cost_dashboard::cost::CostLedger::new();
+            for r in app.ledger.records() {
+                let _ = fresh_ledger.add(r.clone());
+            }
+            Arc::new(Mutex::new(fresh_ledger))
+        };
+
+        let ledger_for_api = Arc::clone(&shared_ledger);
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.spawn(async move {
+            if let Err(e) = llm_cost_dashboard::api::serve(ledger_for_api, port).await {
+                error!(error = %e, "HTTP API server error");
+            }
+        });
+
+        info!("starting TUI event loop (--serve mode)");
+        if let Err(e) = ui::run(app) {
+            error!(error = %e, "dashboard terminated with error");
+            eprintln!("Dashboard error: {e}");
+            std::process::exit(1);
+        }
+    } else {
+        info!("starting TUI event loop");
+        if let Err(e) = ui::run(app) {
+            error!(error = %e, "dashboard terminated with error");
+            eprintln!("Dashboard error: {e}");
+            std::process::exit(1);
+        }
     }
+
     info!("llm-dash exited cleanly");
 }

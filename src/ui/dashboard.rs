@@ -8,7 +8,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::Modifier,
     text::{Line, Span},
-    widgets::{BarChart, Block, Borders, Cell, Paragraph, Row, Table},
+    widgets::{BarChart, Block, Borders, Cell, Paragraph, Row, Sparkline, Table},
     Frame,
 };
 
@@ -17,26 +17,31 @@ use crate::cost::CostLedger;
 use crate::ui::{theme::Theme, widgets};
 
 /// Full dashboard rendering — called on every tick.
+///
+/// `export_status` is an optional short message shown in the title bar after
+/// the user presses `e` to export session data.
 pub fn render(
     frame: &mut Frame,
     ledger: &CostLedger,
     budget: &BudgetEnvelope,
     scroll_offset: usize,
+    export_status: Option<&str>,
 ) {
     let area = frame.area();
 
-    // Outer layout: title bar + main + footer
+    // Outer layout: title bar + main + trend + sparkline + help bar
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1), // title bar
             Constraint::Min(10),   // main content
-            Constraint::Length(3), // sparkline
+            Constraint::Length(5), // 7-day trend panel
+            Constraint::Length(3), // per-request sparkline
             Constraint::Length(1), // help bar
         ])
         .split(area);
 
-    render_title(frame, outer[0]);
+    render_title(frame, outer[0], export_status);
 
     // Main content: left col + right col
     let main = Layout::default()
@@ -44,16 +49,21 @@ pub fn render(
         .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
         .split(outer[1]);
 
-    // Left col: summary + budget
+    // Left col: summary + budget + cache breakdown
     let left = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+        .constraints([
+            Constraint::Percentage(35),
+            Constraint::Percentage(35),
+            Constraint::Percentage(30),
+        ])
         .split(main[0]);
 
     let total = ledger.total_usd();
     let monthly = ledger.projected_monthly_usd(1);
     widgets::render_summary(frame, left[0], total, monthly, ledger.len());
     widgets::render_budget(frame, left[1], budget);
+    render_cache_breakdown(frame, left[2], ledger);
 
     // Right col: model bar chart (top) + recent requests table (bottom)
     let right = Layout::default()
@@ -64,21 +74,31 @@ pub fn render(
     render_model_chart(frame, right[0], ledger);
     render_requests_table(frame, right[1], ledger, scroll_offset);
 
-    // Sparkline
-    let spark_data = ledger.sparkline_data(60);
-    widgets::render_sparkline(frame, outer[2], &spark_data);
+    // 7-day trend panel
+    render_trend(frame, outer[2], ledger);
 
-    render_help(frame, outer[3]);
+    // Per-request sparkline
+    let spark_data = ledger.sparkline_data(60);
+    widgets::render_sparkline(frame, outer[3], &spark_data);
+
+    render_help(frame, outer[4]);
 }
 
-fn render_title(frame: &mut Frame, area: ratatui::layout::Rect) {
-    let title = Paragraph::new(Line::from(vec![
+fn render_title(frame: &mut Frame, area: ratatui::layout::Rect, export_status: Option<&str>) {
+    let mut spans = vec![
         Span::styled(" LLM Cost Dashboard", Theme::title()),
         Span::styled(
-            "  [q: quit | r: reset | d: demo data | j/k: scroll]",
+            "  [q: quit | r: reset | d: demo | e: export | j/k: scroll]",
             Theme::dim(),
         ),
-    ]));
+    ];
+    if let Some(status) = export_status {
+        spans.push(Span::styled(
+            format!("  Exported: {status}"),
+            Theme::ok(),
+        ));
+    }
+    let title = Paragraph::new(Line::from(spans));
     frame.render_widget(title, area);
 }
 
@@ -133,6 +153,7 @@ fn render_requests_table(
         Cell::from("Model").style(Theme::header()),
         Cell::from("In").style(Theme::header()),
         Cell::from("Out").style(Theme::header()),
+        Cell::from("CacheR").style(Theme::header()),
         Cell::from("Cost").style(Theme::header()),
         Cell::from("Latency").style(Theme::header()),
     ]);
@@ -149,6 +170,7 @@ fn render_requests_table(
                 Cell::from(r.model.chars().take(18).collect::<String>()),
                 Cell::from(r.input_tokens.to_string()),
                 Cell::from(r.output_tokens.to_string()),
+                Cell::from(r.cache.cache_read_tokens.to_string()),
                 Cell::from(format!("${:.6}", r.total_cost_usd)),
                 Cell::from(format!("{}ms", r.latency_ms)),
             ])
@@ -162,6 +184,7 @@ fn render_requests_table(
             Constraint::Length(19),
             Constraint::Length(8),
             Constraint::Length(8),
+            Constraint::Length(7),
             Constraint::Length(12),
             Constraint::Length(8),
         ],
@@ -176,4 +199,75 @@ fn render_requests_table(
     .row_highlight_style(Theme::highlight().add_modifier(Modifier::BOLD));
 
     frame.render_widget(table, area);
+}
+
+/// Render the 7-day historical spend trend as a sparkline.
+fn render_trend(frame: &mut Frame, area: ratatui::layout::Rect, ledger: &CostLedger) {
+    let trend = ledger.seven_day_trend();
+    // Scale to integer micro-USD for the Sparkline widget
+    let data: Vec<u64> = trend
+        .iter()
+        .map(|&v| (v * 1_000_000.0) as u64)
+        .collect();
+
+    // Build a label showing today's date and the span
+    let today = chrono::Utc::now().date_naive();
+    let start = today - chrono::Duration::days(6);
+    let title = format!(
+        " 7-Day Spend Trend ({} → {}) ",
+        start.format("%b %d"),
+        today.format("%b %d"),
+    );
+
+    let sparkline = Sparkline::default()
+        .block(
+            Block::default()
+                .title(title)
+                .borders(Borders::ALL)
+                .border_style(Theme::border()),
+        )
+        .data(&data)
+        .style(Theme::warn());
+    frame.render_widget(sparkline, area);
+}
+
+/// Render a cache hit/miss cost breakdown panel.
+fn render_cache_breakdown(frame: &mut Frame, area: ratatui::layout::Rect, ledger: &CostLedger) {
+    let records = ledger.records();
+    let total_cache_read: u64 = records.iter().map(|r| r.cache.cache_read_tokens).sum();
+    let total_cache_write: u64 = records.iter().map(|r| r.cache.cache_write_tokens).sum();
+    let cache_read_cost: f64 = records.iter().map(|r| r.cache.cache_read_cost_usd).sum();
+    let cache_write_cost: f64 = records.iter().map(|r| r.cache.cache_write_cost_usd).sum();
+
+    let lines = vec![
+        Line::from(vec![
+            Span::styled("Cache reads:  ", Theme::dim()),
+            Span::styled(
+                format!("{total_cache_read} tok"),
+                Theme::ok(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Read cost:    ", Theme::dim()),
+            Span::styled(format!("${cache_read_cost:.6}"), Theme::ok()),
+        ]),
+        Line::from(vec![
+            Span::styled("Cache writes: ", Theme::dim()),
+            Span::styled(
+                format!("{total_cache_write} tok"),
+                Theme::warn(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Write cost:   ", Theme::dim()),
+            Span::styled(format!("${cache_write_cost:.6}"), Theme::warn()),
+        ]),
+    ];
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .title(" Cache Breakdown ")
+            .borders(Borders::ALL)
+            .border_style(Theme::border()),
+    );
+    frame.render_widget(paragraph, area);
 }

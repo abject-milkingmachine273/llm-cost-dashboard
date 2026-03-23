@@ -9,28 +9,109 @@
 /// Each tuple is `(model_id, input_usd_per_1m, output_usd_per_1m)`.
 /// Model IDs are matched case-insensitively by [`lookup`].
 ///
-/// Last updated: 2026-03-18
+/// Last updated: 2026-03-22
 pub const PRICING: &[(&str, f64, f64)] = &[
-    // Anthropic — Claude 4 family
+    // ── Anthropic — Claude 4 family ─────────────────────────────────────────
     ("claude-opus-4-6", 15.00, 75.00),
     ("claude-sonnet-4-6", 3.00, 15.00),
     ("claude-haiku-4-5", 0.25, 1.25),
-    // OpenAI — GPT-4o family
+    // ── Anthropic — Claude 3.5 family ───────────────────────────────────────
+    ("claude-3-5-sonnet-20241022", 3.00, 15.00),
+    ("claude-3-5-haiku-20241022", 0.80, 4.00),
+    ("claude-3-5-sonnet-20240620", 3.00, 15.00),
+    // ── Anthropic — Claude 3 family ─────────────────────────────────────────
+    ("claude-3-opus-20240229", 15.00, 75.00),
+    ("claude-3-sonnet-20240229", 3.00, 15.00),
+    ("claude-3-haiku-20240307", 0.25, 1.25),
+    // ── OpenAI — GPT-4o family ──────────────────────────────────────────────
     ("gpt-4o", 5.00, 15.00),
     ("gpt-4o-mini", 0.15, 0.60),
     ("gpt-4-turbo", 10.00, 30.00),
-    // OpenAI — o-series reasoning models
+    ("gpt-4.5-preview", 75.00, 150.00),
+    ("chatgpt-4o-latest", 5.00, 15.00),
+    // ── OpenAI — o-series reasoning models ──────────────────────────────────
     ("o1", 15.00, 60.00),
     ("o1-preview", 15.00, 60.00),
     ("o1-mini", 1.10, 4.40),
     ("o3", 10.00, 40.00),
     ("o3-mini", 1.10, 4.40),
     ("o4-mini", 1.10, 4.40),
-    // Google — Gemini family
+    // ── OpenAI — Legacy ─────────────────────────────────────────────────────
+    ("gpt-4", 30.00, 60.00),
+    ("gpt-3.5-turbo", 0.50, 1.50),
+    ("gpt-3.5-turbo-instruct", 1.50, 2.00),
+    // ── Google — Gemini 2 family ─────────────────────────────────────────────
+    ("gemini-2.5-pro", 1.25, 10.00),
     ("gemini-2.0-flash", 0.10, 0.40),
     ("gemini-2.0-flash-lite", 0.075, 0.30),
+    ("gemini-2.0-flash-thinking", 0.15, 0.60),
+    // ── Google — Gemini 1.5 family ───────────────────────────────────────────
     ("gemini-1.5-pro", 3.50, 10.50),
     ("gemini-1.5-flash", 0.075, 0.30),
+    ("gemini-1.5-flash-8b", 0.0375, 0.15),
+    // ── DeepSeek ─────────────────────────────────────────────────────────────
+    ("deepseek-r1", 0.55, 2.19),
+    ("deepseek-v3", 0.27, 1.10),
+    ("deepseek-v2-5", 0.14, 0.28),
+    ("deepseek-chat", 0.27, 1.10),
+    ("deepseek-coder", 0.14, 0.28),
+    ("deepseek-r1-distill-llama-70b", 0.55, 2.19),
+    ("deepseek-r1-distill-qwen-32b", 0.55, 2.19),
+    // ── Mistral ──────────────────────────────────────────────────────────────
+    ("mistral-large-2411", 2.00, 6.00),
+    ("mistral-large-2407", 3.00, 9.00),
+    ("mistral-small-2501", 0.10, 0.30),
+    ("mistral-small-2402", 1.00, 3.00),
+    ("mistral-nemo", 0.15, 0.15),
+    ("codestral-2501", 0.30, 0.90),
+    ("pixtral-large-2411", 2.00, 6.00),
+    ("pixtral-12b-2409", 0.15, 0.15),
+    ("ministral-8b-2410", 0.10, 0.10),
+    ("ministral-3b-2410", 0.04, 0.04),
+    // ── Meta / Llama (via Together AI / Groq) ────────────────────────────────
+    ("meta-llama/llama-3.1-405b-instruct-turbo", 5.00, 5.00),
+    ("meta-llama/llama-3.1-70b-instruct-turbo", 0.88, 0.88),
+    ("meta-llama/llama-3.1-8b-instruct-turbo", 0.18, 0.18),
+    ("meta-llama/llama-3.3-70b-instruct-turbo", 0.88, 0.88),
+    ("meta-llama/llama-3.2-90b-vision-instruct-turbo", 1.20, 1.20),
+    ("meta-llama/llama-3.2-11b-vision-instruct-turbo", 0.18, 0.18),
+    ("llama-3.3-70b-versatile", 0.59, 0.79),    // Groq
+    ("llama-3.1-70b-versatile", 0.59, 0.79),    // Groq
+    ("llama-3.1-8b-instant", 0.05, 0.08),        // Groq
+    // ── xAI Grok ─────────────────────────────────────────────────────────────
+    ("grok-3", 3.00, 15.00),
+    ("grok-3-mini", 0.30, 0.50),
+    ("grok-2-1212", 2.00, 10.00),
+    ("grok-2-vision-1212", 2.00, 10.00),
+    ("grok-beta", 5.00, 15.00),
+    // ── Cohere ───────────────────────────────────────────────────────────────
+    ("command-r-plus-08-2024", 2.50, 10.00),
+    ("command-r-08-2024", 0.15, 0.60),
+    ("command-a-03-2025", 2.50, 10.00),
+    ("command-r7b-12-2024", 0.0375, 0.15),
+    // ── Perplexity ───────────────────────────────────────────────────────────
+    ("sonar-pro", 3.00, 15.00),
+    ("sonar", 1.00, 1.00),
+    ("sonar-reasoning-pro", 2.00, 8.00),
+    ("sonar-reasoning", 1.00, 5.00),
+    // ── Amazon (Bedrock) ─────────────────────────────────────────────────────
+    ("amazon.nova-pro-v1:0", 0.80, 3.20),
+    ("amazon.nova-lite-v1:0", 0.06, 0.24),
+    ("amazon.nova-micro-v1:0", 0.035, 0.14),
+    ("amazon.titan-text-express-v1", 0.20, 0.60),
+    ("amazon.titan-text-lite-v1", 0.30, 0.40),
+    // ── Alibaba Qwen ─────────────────────────────────────────────────────────
+    ("qwen-max", 1.60, 6.40),
+    ("qwen-plus", 0.40, 1.20),
+    ("qwen-turbo", 0.05, 0.20),
+    ("qwen2.5-72b-instruct", 0.90, 0.90),
+    ("qwen2.5-7b-instruct", 0.10, 0.10),
+    // ── Writer ───────────────────────────────────────────────────────────────
+    ("palmyra-x-004", 5.00, 15.00),
+    ("palmyra-x-003-instruct", 1.50, 2.00),
+    // ── AI21 Labs ────────────────────────────────────────────────────────────
+    ("jamba-1.5-large", 2.00, 8.00),
+    ("jamba-1.5-mini", 0.20, 0.40),
 ];
 
 /// Fallback pricing used when the model is not found in [`PRICING`].
