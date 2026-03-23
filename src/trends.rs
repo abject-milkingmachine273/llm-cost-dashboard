@@ -525,7 +525,8 @@ mod tests {
         let mut a = TrendAnalyzer::new();
         a.record(days(0), "m", 1.0);
         a.record(days(1), "m", 2.0);
-        let lines: Vec<&str> = a.to_csv().lines().collect();
+        let csv = a.to_csv();
+        let lines: Vec<&str> = csv.lines().collect();
         // 1 header + 2 data rows
         assert_eq!(lines.len(), 3);
     }
